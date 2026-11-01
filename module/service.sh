@@ -24,9 +24,13 @@ fi
 # leave the module dead on a temporary-root device.
 [ -e "$STATE/autostart-off" ] && exit 0
 if [ -e "$STATE/startup-incomplete" ];then
-    touch "$STATE/disabled"
-    echo 'Prior startup did not finish; manual inspection required' > "$STATE/boot-start.log"
-    exit 3
+    # A marker left behind by an interrupted attempt (module replaced while the
+    # system was running, reboot during the driver swap, crash) must not kill
+    # the module on the next boot. The kernel stack is rebuilt from scratch on
+    # every boot, so a marker from an earlier boot is only a hint. Clearing it
+    # and retrying keeps the module alive instead of latching it off.
+    echo 'Previous startup did not finish; retrying from a clean state' > "$STATE/boot-start.log"
+    rm -f "$STATE/startup-incomplete"
 fi
 # ---------------------------------------------------------------------------
 # Startup with resilience for temporary-root devices.

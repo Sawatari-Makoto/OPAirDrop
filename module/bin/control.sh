@@ -240,7 +240,11 @@ case "${1:-status}" in
         ;;
     start)
         preflight; lock_stack
-        /system/bin/sh "$MODDIR/bin/mount-check.sh" "$MODDIR"
+        # The payload has to be visible in the system view before the driver
+        # swap starts. A module that was replaced while the system was running
+        # is only mounted after the next reboot, so abort here instead of
+        # failing halfway through the stack and leaving a stale marker behind.
+        /system/bin/sh "$MODDIR/bin/mount-check.sh" "$MODDIR" || exit 3
         /system/bin/sh "$MODDIR/bin/transfer-idle.sh"
         /system/bin/sh "$MODDIR/bin/grant-permissions.sh" 2>/dev/null || true
         rm -f "$STATE/disabled"
