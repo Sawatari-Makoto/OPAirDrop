@@ -8,7 +8,7 @@ import re
 from urllib.parse import quote
 import zipfile
 
-REPOSITORY = 'Weverses/OPAirDrop'
+REPOSITORY = 'Sawatari-Makoto/OPAirDrop'
 
 
 def read_properties(text):

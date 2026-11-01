@@ -2,6 +2,7 @@
 
 ## 1.1.0
 
+- 模块作者改为 Air；源码与关于页面不再展示具体作者署名，第三方组件的版权归属按原许可保留。
 - 修复「Quick Share 不可用、对方识别不到本机」：发现补丁（callback/discovery）本应让 Mosey
   开启接收端并用 mDNS 广播本机，但启动脚本在内部换包时写入了 `callback-off` 标记；一旦换包
   中途失败（radio 尚未释放导致 `radio session still active`），该标记会残留，后续每次开机都
@@ -190,7 +191,7 @@
 ## 1.0.6
 
 - 移除 KernelSU 的执行脚本（Action）入口。
-- 模块作者更新为 TimelessU，关于页名称统一为 OPAirDrop，补齐参考项目与组件致谢。
+- 模块作者信息更新，关于页名称统一为 OPAirDrop，补齐参考项目与组件致谢。
 - WebUI 设置新增 AirDrop 显示名称，可保存自定义名称或恢复默认。
 - 默认使用设备的 ro.vendor.oplus.market.enname（如 OnePlus 13），属性为空时回退到机型。
 - 名称持久保存，接收广播和发送身份保持一致；待确认或传输中修改将在任务结束后更新广播。

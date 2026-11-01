@@ -191,7 +191,7 @@ def main():
         '配置 OShare 与 Mosey 的主用户作用域。安装后重启一次。恢复环境安装或 LSPosed 尚未初始化时，'
         '开机后自动重试；若开机后才完成激活，需要再次重启。无 LSPosed 时会跳过桥接安装。\n\n'
         '配置前的 LSPosed 数据库备份与安装日志保存在 /data/adb/opairshare/。\n\n'
-        '支持 KernelSU 管理器的模块在线更新，更新源为 Weverses/OPAirDrop 的 GitHub 正式 Release。'
+        '支持 KernelSU 管理器的模块在线更新，更新源为 Sawatari-Makoto/OPAirDrop 的 GitHub 正式 Release。'
         '首次需要手动安装包含 updateJson 的本版本，之后可在管理器中检查与安装新版本。\n\n'
         '内置 Unlock CN GMS v3.8（fei-ke）：安装时复制本机匹配的权限配置，移除两项国行 GMS 限制，'
         '开机早期只读挂载配置副本。仍需在系统设置开启 Google 服务。安装器会停用旧的独立解锁模块。'

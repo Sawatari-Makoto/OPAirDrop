@@ -1,7 +1,5 @@
 # OPAirDrop
 
-作者：TimelessU
-
 为 Oplus Android 设备连接 AirDrop、Quick Share 与 OShare 分享入口。
 
 从系统分享面板选择文件后，OPAirDrop 在互传界面显示 Apple 设备，并通过 AWDL 传输文件。项目使用 Mosey 分享服务，配合 Wonder、Qualcomm WLAN 驱动适配和 OShare 桥接。Root 模块负责服务生命周期，WebUI 提供状态、共存设置、速度历史和日志入口。
@@ -138,7 +136,7 @@ WebUI → 设置 → AirDrop 名称可保存自定义名称或恢复默认。默
 
 从 v1.0.2 起，在 KernelSU 管理器中支持模块更新检查、更新日志查看、下载及覆盖安装。首次从旧版升级需要手动安装 v1.0.2 并重启，之后可在管理器中更新。
 
-更新源为 [GitHub 正式 Releases](https://github.com/Weverses/OPAirDrop/releases)，入口固定为 `https://github.com/Weverses/OPAirDrop/releases/latest/download/update.json`。每个正式版本需附带模块 ZIP、`update.json` 和 `changelog.md`；在线检查按 `versionCode` 比较版本，安装后重启生效。首次正式 Release 上传前，此地址尚不可用。
+更新源为 [GitHub 正式 Releases](https://github.com/Sawatari-Makoto/OPAirDrop/releases)，入口固定为 `https://github.com/Sawatari-Makoto/OPAirDrop/releases/latest/download/update.json`。每个正式版本需附带模块 ZIP、`update.json` 和 `changelog.md`；在线检查按 `versionCode` 比较版本，安装后重启生效。首次正式 Release 上传前，此地址尚不可用。
 
 ## 文档
 

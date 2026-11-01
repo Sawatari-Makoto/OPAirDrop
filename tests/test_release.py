@@ -24,7 +24,7 @@ class ReleaseTests(unittest.TestCase):
 
     def write_zip(self, *, overrides=None, tamper=None, omit=None, duplicate=None):
         props = {'id': 'opairshare', 'name': 'OPAirDrop', 'version': '1.0.2', 'versionCode': '10002',
-                 'updateJson': update_url('Weverses/OPAirDrop')}
+                 'updateJson': update_url('Sawatari-Makoto/OPAirDrop')}
         props.update(overrides or {})
         payload = {'module.prop': ''.join(f'{k}={v}\n' for k, v in props.items()).encode(),
                    'service.sh': b'#!/system/bin/sh\nexit 0\n',
@@ -44,8 +44,8 @@ class ReleaseTests(unittest.TestCase):
         result = emit_metadata(self.archive, self.output, tag='v1.0.2')
         self.assertEqual(result, {
             'version': '1.0.2', 'versionCode': 10002,
-            'zipUrl': 'https://github.com/Weverses/OPAirDrop/releases/download/v1.0.2/OPAirDrop-v1.0.2-PJZ110.zip',
-            'changelog': 'https://github.com/Weverses/OPAirDrop/releases/download/v1.0.2/changelog.md'})
+            'zipUrl': 'https://github.com/Sawatari-Makoto/OPAirDrop/releases/download/v1.0.2/OPAirDrop-v1.0.2-PJZ110.zip',
+            'changelog': 'https://github.com/Sawatari-Makoto/OPAirDrop/releases/download/v1.0.2/changelog.md'})
         self.assertEqual(json.loads((self.output / 'update.json').read_text()), result)
         notes = (self.output / 'changelog.md').read_text()
         self.assertIn('支持 KernelSU 在线更新', notes)
@@ -68,7 +68,7 @@ class ReleaseTests(unittest.TestCase):
                 self.write_zip()
                 result = emit_metadata(self.archive, self.output, tag='v1.0.2')
                 self.assertEqual(result['zipUrl'],
-                                 'https://github.com/Weverses/OPAirDrop/releases/download/v1.0.2/' + encoded)
+                                 'https://github.com/Sawatari-Makoto/OPAirDrop/releases/download/v1.0.2/' + encoded)
                 self.assertEqual((self.output / (name + '.sha256')).read_text(),
                                  hashlib.sha256(self.archive.read_bytes()).hexdigest() + '  ' + name + '\n')
 
