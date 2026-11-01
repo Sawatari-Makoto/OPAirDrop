@@ -94,6 +94,32 @@ def check_script_syntax(output):
             raise SystemExit(f'Shell syntax error in {path.relative_to(output).as_posix()}: {result.stderr.strip()}')
 
 
+def check_sourced_scripts(output):
+    """Reject library scripts that would run their command line when sourced.
+
+    Several helpers in bin/ are sourced by other scripts to share functions.
+    A sourced file that executes its own command line interface would run
+    that interface in the caller's context, which fails or has side effects.
+    The guard looks for a script that is sourced by another one and that has
+    no guard around its command line dispatch.
+    """
+    scripts = {path.name: path for path in (output / 'bin').glob('*.sh')}
+    for name, path in scripts.items():
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        # A file that dispatches on its arguments has a command line part.
+        if 'case "${1:-' not in text:
+            continue
+        # The dispatch has to be guarded by a check that only passes when the
+        # file is the entry point of the run.
+        if re.search(r'case\s+"\$\{0##\*/\}"', text):
+            continue
+        sourced_by = [other for other, other_path in scripts.items()
+                      if other != name and re.search(rf'^\.\s+.*\b{re.escape(name)}\b', other_path.read_text(encoding='utf-8', errors='ignore'), re.M)]
+        if sourced_by:
+            raise SystemExit(f'{name} has a command line interface but is sourced by {", ".join(sorted(sourced_by))}; '
+                             'guard the dispatch so sourcing it does not run the CLI')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, default=ROOT / 'local-inputs/reference-r27')
@@ -219,6 +245,7 @@ def main():
     # verification with `set: illegal option` and the install is rejected.
     normalize_payload(output)
     check_script_syntax(output)
+    check_sourced_scripts(output)
     verify_driver_abi(output)
     sums = ''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files(output) if p.name not in ('SHA256SUMS', 'ARCHIVE-SHA256SUMS'))
     # Newline translation would append CR to every path and break bin/verify.sh.

@@ -216,7 +216,14 @@ ready_message() { echo AIRDROP_RESIDENT_READY_UI_GATED; }
 case "${1:-status}" in
     status)
         echo "model=$(getprop ro.product.model) sdk=$(getprop ro.build.version.sdk) kernel=$(uname -r)"
-        if same_boot "$STATE/stack-boot" && kernel_matches; then echo stack=stage44_coexist_owned; else echo stack=not_owned; fi
+        if same_boot "$STATE/stack-boot" && kernel_matches; then echo stack=stage44_coexist_owned
+        else
+            echo stack=not_owned
+            # Report why the stack cannot be used, so a device on a different
+            # firmware can be diagnosed without attaching a debugger.
+            capability_reason=$(driver_capability_gap)
+            [ -n "$capability_reason" ] && echo "driver_gap=$capability_reason"
+        fi
         framework service check "$SERVICE"
         /system/bin/sh "$MODDIR/bin/provider.sh" status
         /system/bin/sh "$MODDIR/bin/callback.sh" status

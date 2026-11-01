@@ -8,6 +8,7 @@ MODDIR=$(CDPATH= cd -- "${0%/*}/.." && pwd)
 . "$MODDIR/bin/coex-wifi.sh"
 . "$MODDIR/bin/kernel-identity.sh"
 . "$MODDIR/bin/share-mode.sh"
+. "$MODDIR/bin/idle-sleep.sh"
 init_state
 exec 8> "$STATE/provider.flock"
 flock -n 8 8>&8 || exit 0
@@ -63,7 +64,11 @@ close_session() {
     /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 8>&- || return 9
     if [ "${1:-normal}" != recover ];then
         [ "$(foreground_state)" = closed ] || return 10
-        if [ "$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)" = 1 ];then return 10;fi
+        # Background reception normally keeps the session open. The idle policy
+        # is the one exception that allows it to be released, so the session
+        # can be taken down once the user stopped asking for transfers.
+        if [ "$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)" = 1 ] &&
+           [ "$(idle_may_sleep)" = 1 ];then return 10;fi
     fi
     /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release 8>&- || return 6
     [ -z "$(pidof "$PKG" || true)" ] || return 6
@@ -186,11 +191,24 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     receive_eligible=0
     receive_samples=$((receive_samples+1))
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
+    foreground=$(foreground_state)
+    # A visible share surface is an explicit intent to send or receive, so it
+    # keeps the session armed and refreshes the idle timer.
+    if [ "$foreground" = open ];then idle_touch;fi
+    # Background reception is owned by the module, but only while the user is
+    # still expected to use it. After the idle period the radio is released so
+    # the device stops paying for an armed AWDL session all day; the next
+    # share surface brings it straight back.
+    if [ "$receive_eligible" = 1 ] && [ "$foreground" != open ];then
+        if [ "$(idle_may_sleep)" = 0 ];then
+            receive_eligible=0
+            echo "IDLE_SLEEP after $(idle_remaining)s without activity"
+        fi
+    fi
     if [ "$receive_eligible" != 1 ] && [ "$receive_published" = 1 ];then
         /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
         receive_published=0
     fi
-    foreground=$(foreground_state)
     if [ "$foreground" = unknown ] && [ "$receive_eligible" != 1 ];then
         off_samples=0;echo 'Cannot read foreground UI; retain current session';sleep 2;continue
     fi

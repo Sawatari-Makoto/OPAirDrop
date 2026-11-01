@@ -96,20 +96,83 @@ active_services() {
         sed -n '/  User 0 active services:/,$p'
 }
 kernel_matches() {
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_native_data_rx)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_awdl_raw_rx)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_awdl_backpressure)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_awdl_target_auto)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_awdl_rx_auto)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_awdl_rx_rearm)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_sta_coexist)" = 3 ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_sta_regular_rx)" = Y ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_sta_action_rx)" = Y ] &&
-    [ "$(module_note qca_cld3_peach_v2)" = "$NOTE_qca_cld3_peach_v2" ] &&
-    [ "$(module_note mac80211)" = "$NOTE_mac80211" ] &&
-    [ "$(module_note wonder)" = "$NOTE_wonder" ] &&
-    [ "$(module_note opairshare_wonder_provider)" = "$NOTE_opairshare_wonder_provider" ] &&
-    [ "$(cat /sys/module/qca_cld3_peach_v2/parameters/passthru_awdl_wmi_raw)" = Y ]
+    # The stock WLAN and mac80211 builds differ per firmware and per device,
+    # so their build ids cannot be compared against a fixed value. What the
+    # module actually needs is a driver that exposes the AWDL and
+    # coexistence knobs it drives, which the capability probe verifies.
+    driver_compatible
+}
+# The capability probe lives here because common.sh is sourced from scripts
+# that run in different directories, so a separate file could not be located
+# reliably.
+DRIVER_PARAMS=/sys/module/qca_cld3_peach_v2/parameters
+# Knobs the AWDL path depends on, with the value each one has to carry.
+DRIVER_REQUIRED_KNOBS='passthru_native_data_rx:Y
+passthru_awdl_raw_rx:Y
+passthru_awdl_backpressure:Y
+passthru_awdl_target_auto:Y
+passthru_awdl_rx_auto:Y
+passthru_awdl_rx_rearm:Y
+passthru_sta_regular_rx:Y
+passthru_sta_action_rx:Y
+passthru_awdl_wmi_raw:Y'
+DRIVER_REQUIRED_COEXIST=3
+driver_param() {
+    [ -r "$DRIVER_PARAMS/$1" ] || return 1
+    head -c 64 "$DRIVER_PARAMS/$1" 2>/dev/null
+}
+# Report the first missing capability, or an empty string when all are there.
+driver_capability_gap() {
+    loaded qca_cld3_peach_v2 || { echo 'wlan driver not loaded';return; }
+    for entry in $DRIVER_REQUIRED_KNOBS; do
+        knob=${entry%%:*}
+        want=${entry##*:}
+        got=$(driver_param "$knob" 2>/dev/null || true)
+        if [ "$got" != "$want" ]; then
+            echo "missing $knob (expected $want, found ${got:-absent})"
+            return
+        fi
+    done
+    mode=$(driver_param passthru_sta_coexist 2>/dev/null || true)
+    if [ "$mode" != "$DRIVER_REQUIRED_COEXIST" ]; then
+        echo "passthru_sta_coexist is ${mode:-absent}, expected $DRIVER_REQUIRED_COEXIST"
+        return
+    fi
+    for entry in opairshare_channel_state opairshare_awdl_rx_mac_filter opairshare_bridge_pending; do
+        if [ ! -r "$DRIVER_PARAMS/$entry" ]; then
+            echo "missing $entry"
+            return
+        fi
+    done
+    echo ''
+}
+# The modules this package installed have to be the ones that are loaded, so
+# the stack can be taken down again on unload.
+owned_modules_match() {
+    for name in wonder opairshare_wonder_provider; do
+        loaded "$name" || continue
+        expected=$(eval echo "\$NOTE_$name")
+        [ -n "$expected" ] || continue
+        [ "$(module_note "$name")" = "$expected" ] || {
+            echo "module $name was replaced by another build"
+            return 1
+        }
+    done
+    return 0
+}
+# Full compatibility decision used by the supervisor and the control script.
+# Prints a reason when the stack is not usable.
+driver_compatible() {
+    gap=$(driver_capability_gap)
+    if [ -n "$gap" ]; then
+        echo "$gap"
+        return 1
+    fi
+    if ! owned_modules_match; then
+        echo 'module-owned driver was replaced by another build'
+        return 1
+    fi
+    return 0
 }
 turbo_module_args() {
     # Persistent choice made with bin/turbo.sh; default is ON.

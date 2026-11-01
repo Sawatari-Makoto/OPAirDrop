@@ -1,0 +1,81 @@
+/**
+ * Immersive layout for the module WebUI.
+ *
+ * The WebUI host varies between manager versions: some inject
+ * `--window-inset-top` / `--window-inset-bottom`, some lay the WebView out
+ * edge to edge and leave the safe area to the page, and some do neither and
+ * simply place the viewport below the status bar. The page has to end up
+ * correct in all three cases, so the insets are resolved here instead of
+ * being assumed.
+ *
+ * Resolution order for the top inset:
+ *   1. the value the module measured through the window manager
+ *   2. the host injected `--window-inset-top`
+ *   3. `env(safe-area-inset-top)` for hosts that lay out edge to edge
+ *
+ * The bottom inset follows the same order with `--window-inset-bottom` and
+ * `env(safe-area-inset-bottom)`.
+ */
+
+/** Insets measured by the module backend, in CSS pixels. */
+let measured = { top: 0, bottom: 0 };
+
+/**
+ * Record the insets reported by the module backend.
+ *
+ * The measurement is authoritative because it comes from the window manager
+ * for the window that is actually on screen.
+ */
+export function setMeasuredInsets(top: number, bottom: number): void {
+  measured = {
+    top: Number.isFinite(top) && top > 0 ? Math.round(top) : 0,
+    bottom: Number.isFinite(bottom) && bottom > 0 ? Math.round(bottom) : 0,
+  };
+  applyInsets();
+}
+
+/** Host-injected inset, when the manager provides one. */
+function hostInset(name: string): number {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw || !raw.endsWith('px')) return 0;
+  const value = Number.parseFloat(raw);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** Safe area reported by an edge-to-edge host. */
+function safeAreaInset(name: 'top' | 'bottom'): number {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;left:0;visibility:hidden;pointer-events:none;';
+  probe.style.setProperty(`padding-${name}`, `env(safe-area-inset-${name}, 0px)`);
+  document.documentElement.appendChild(probe);
+  const value = Number.parseFloat(getComputedStyle(probe).getPropertyValue(`padding-${name}`)) || 0;
+  probe.remove();
+  return value > 0 ? value : 0;
+}
+
+function applyInsets(): void {
+  const root = document.documentElement;
+
+  const top = measured.top || hostInset('--window-inset-top') || safeAreaInset('top');
+  const bottom = measured.bottom || hostInset('--window-inset-bottom') || safeAreaInset('bottom');
+
+  root.style.setProperty('--top-inset', `${top}px`);
+  root.style.setProperty('--bottom-inset', `${bottom}px`);
+  root.classList.add('immersive-ready');
+}
+
+/**
+ * The host may report the insets only after the first layout, so the values
+ * are recomputed when the viewport changes and after the UI has rendered.
+ */
+export function setupImmersiveLayout(): void {
+  applyInsets();
+
+  window.addEventListener('resize', applyInsets, { passive: true });
+  window.addEventListener('orientationchange', applyInsets, { passive: true });
+
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(() => applyInsets());
+    observer.observe(document.documentElement);
+  }
+}

@@ -8,6 +8,7 @@ MODDIR=$(CDPATH= cd -- "${0%/*}/.." && pwd)
 . "$MODDIR/bin/receive-directory.sh"
 . "$MODDIR/bin/webui-status.sh"
 . "$MODDIR/bin/share-mode.sh"
+. "$MODDIR/bin/idle-sleep.sh"
 init_state
 P=/sys/module/qca_cld3_peach_v2/parameters
 fail() { echo "$*" >&2;exit 8; }
@@ -79,6 +80,14 @@ status() {
     fi
     quickshare=$(app_state com.google.android.mosey)
     oshare=$(app_state com.coloros.oshare)
+    # System bar insets for the WebUI, measured by the window manager and
+    # reported in CSS pixels. The page uses them to reserve exactly the space
+    # the status and navigation bars occupy.
+    insets=$(/system/bin/timeout 8 /system/bin/sh "$MODDIR/bin/webui-insets.sh" 2>/dev/null || true)
+    inset_top=$(printf '%s\n' "$insets" | sed -n 's/.*top=\([0-9][0-9]*\).*/\1/p' | head -1)
+    inset_bottom=$(printf '%s\n' "$insets" | sed -n 's/.*bottom=\([0-9][0-9]*\).*/\1/p' | head -1)
+    [ -n "$inset_top" ] || inset_top=0
+    [ -n "$inset_bottom" ] || inset_bottom=0
     awdl=stopped
     if [ -r "$P/opairshare_channel_state" ] && [ -n "$(pidof mosey_server 2>/dev/null || true)" ];then awdl=running;fi
     json_object \
@@ -113,6 +122,10 @@ status() {
         nss "$(read_p passthru_awdl_nss)" \
         batch "$(read_p passthru_awdl_amsdu_max)" \
         collect "$(read_p passthru_awdl_collect_us)" \
+        inset_top "$inset_top" \
+        inset_bottom "$inset_bottom" \
+        idle_timeout "$(idle_timeout_seconds)" \
+        idle_remaining "$(idle_remaining)" \
         callback "$(same_boot "$STATE/callback/boot" && echo on || echo off)"
 }
 idle() {
@@ -183,6 +196,15 @@ case "${1:-status}" in
             result=$(/system/bin/settings delete global "$AIR_NAME_KEY") || fail '恢复默认名称失败。'
         fi
         [ "$(read_name_hex)" = "$name_value" ] || fail '名称保存结果未确认，请刷新后核对。'
+        status
+        ;;
+    idle-timeout)
+        [ "$#" = 2 ] || exit 2
+        case "$2" in ''|*[!0-9]*) fail '空闲时间必须是秒数。';; esac
+        [ "$2" -le 86400 ] || fail '空闲时间最多为 86400 秒。'
+        [ "$(id -u)" = 0 ] || fail '需要 Root 权限。'
+        result=$(/system/bin/sh "$MODDIR/bin/idle-sleep.sh" set-timeout "$2" 2>&1) || fail '保存空闲时间失败。'
+        [ "$result" = "$2" ] || fail '空闲时间保存结果未确认，请刷新后核对。'
         status
         ;;
     speed)
