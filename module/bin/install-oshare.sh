@@ -57,8 +57,21 @@ else
     status=$?
     printf '%s\n' "$result" >> "$STATE/oshare-install.log"
     if [ "$status" != 0 ] || ! printf '%s\n' "$result" | grep -q '^Success'; then
-        echo "OShare 安装失败：$result"
-        exit 1
+        # A rebuild signed with a different key cannot replace the installed
+        # bridge in place. The bridge is a headless LSPosed module without user
+        # data, so remove the stale copy once and retry the install.
+        if printf '%s\n' "$result" | grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE'; then
+            echo 'OShare 签名与已安装版本不同，移除旧桥接后重试。'
+            printf '%s\n' "$result" >> "$STATE/oshare-install.log"
+            /system/bin/pm uninstall --user 0 "$PKG" >> "$STATE/oshare-install.log" 2>&1
+            result=$(/system/bin/pm install -r --user 0 -S "$(wc -c < "$APK" | tr -d ' ')" < "$APK" 2>&1)
+            status=$?
+            printf '%s\n' "$result" >> "$STATE/oshare-install.log"
+        fi
+        if [ "$status" != 0 ] || ! printf '%s\n' "$result" | grep -q '^Success'; then
+            echo "OShare 安装失败：$result"
+            exit 1
+        fi
     fi
 fi
 installed=$(/system/bin/pm path --user 0 "$PKG" 2>/dev/null | sed -n 's/^package://p')
