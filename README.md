@@ -28,7 +28,9 @@
 
 安装和启动共用 `module/bin/compatibility.sh`，设备准入检查 Oplus 品牌、`ro.board.platform=sun`。不限制型号、SoC 属性、SDK、内核版本或原厂驱动构建身份。安装仍检查 Root 权限和包完整性；元模块名称与 `/data/adb/metamodule` 是否存在不作为准入条件。
 
-模块自身已加载的修改版驱动与 provider / Wonder 继续校验身份，用于识别本模块拥有的运行状态。原厂驱动不再按 PJZ110 的构建身份或模块大小拦截，实际加载结果由内核决定。通过检测不代表所有固件、OShare / Mosey 版本或实际收发已验证。
+模块自身已加载的修改版驱动与 provider / Wonder 继续校验身份，用于识别本模块拥有的运行状态。原厂驱动不再按 PJZ110 的构建身份或模块大小拦截，改为运行时探测驱动实际暴露的 AWDL 与共存能力参数；缺失哪一项会在 `control.sh status` 的 `driver_gap` 中报出。通过检测不代表所有固件、OShare / Mosey 版本或实际收发已验证。
+
+发行包内的内核驱动是在采集机器那一个固件版本上编译的，固件不同的同型号设备通常需要针对该固件重新编译内核模块，流程见 [平台迁移指南](docs/PORTING.md)。用户态（Mosey、OShare 桥接、WebUI）与内核无关，可直接复用。
 
 ### Root 管理器与挂载方式
 
@@ -111,6 +113,14 @@ WebUI → 设置 → AirDrop 分享入口可选择 Quick Share、OShare 或二�
 该选项只控制 AirDrop 入口，不停用 GMS 或 OShare 整个应用，也不关闭普通 Android / Windows Quick Share 分享。OShare 与二者共存模式需要 LSPosed 桥接；Quick Share 自身的 AirDrop 可用性仍取决于 GMS / Mosey 支持。当前完成主机回归与桥接编译，三种模式切换后的实机发现和双向收发仍待验证。桥接和模块脚本必须配套更新。
 
 配置保存在 Settings.Global 的 `opairshare_share_mode`；后台监督器在原会话空闲并释放后更新 `debug.opairshare.share_mode`；切换过程关闭新任务准入，已有任务继续完成。
+
+### 空闲释放无线会话
+
+后台接收开启时，AWDL 会话会持续占用无线资源：wonder 接口保持在线、mDNS 广播不停，传输期间 STA 还会退出省电。长时间不传输时，这部分开销一直存在。
+
+WebUI → 设置 → 功耗 → 空闲后释放无线会话可设定空闲时长（秒）。超过该时长没有打开分享界面、也没有传输进行时，模块会自动释放无线会话并让 STA 恢复省电；下次打开分享界面立即重建会话，不影响使用。默认值 120 秒，填 0 表示不自动释放、始终保持后台可被发现。
+
+配置保存在 Settings.Global 的 `idle_timeout`。
 
 ### AirDrop 显示名称（1.0.6）
 

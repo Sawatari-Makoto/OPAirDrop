@@ -4,6 +4,37 @@
 
 同一 SoC 的设备也可能使用不同的 WLAN 固件、内核分支和系统分享服务版本。开发时以目标设备的源码和运行环境为起点。
 
+## 0. 适配现状与门槛
+
+发行包内的内核驱动是在**采集机器那一个固件版本**的源码上编译出来的，这是当前最硬的门槛。
+固件不同的同型号设备，驱动在符号版本、模块接口和厂商分支上都会不同，随包驱动无法直接加载。
+
+不过运行时的兼容性判断已经放宽：模块不再拿原厂 WLAN 与 mac80211 的 build-id 去比对
+一个写死的值，而是探测驱动**实际暴露的能力参数**。只要驱动提供 AWDL 与共存所需的
+旋钮，模块就能正常工作。
+
+判定入口是 `bin/common.sh` 的 `driver_capability_gap()`，它会报出第一个缺失项：
+
+```sh
+sh /data/adb/modules/opairshare/bin/control.sh status
+# stack=not_owned
+# driver_gap=missing passthru_awdl_backpressure (expected Y, found absent)
+```
+
+模块自身安装的 `wonder` 与 provider 仍按 build-id 校验，这是为了保证卸载时能准确回收
+自己装上的模块，不会误删其他来源的同名模块。
+
+因此迁移到其他一加 13 的实际路径是：
+
+| 步骤 | 内容 |
+| --- | --- |
+| 1 | 在目标设备上跑一次 `control.sh status`，看 `driver_gap` 报什么 |
+| 2 | 若驱动能力齐全但随包驱动加载失败，需要为目标固件重新编译内核模块 |
+| 3 | 重新编译后更新 `local-inputs/<device>/kernel-identity.json`，打包脚本会写入新的 build-id |
+| 4 | 若 `driver_gap` 指向能力缺失，说明该固件的厂商 WLAN 源码不含 AWDL 相关补丁，需按第 2 节合入覆盖层 |
+
+用户态（Mosey、OShare 桥接、WebUI）与内核无关，同固件系列通常可直接复用。
+
 ## 1. 收集设备信息
 
 先保存设备型号、系统版本、SoC、内核版本和模块列表：
