@@ -60,6 +60,29 @@ def normalize_payload(output):
     return changed
 
 
+def verify_driver_abi(output):
+    """Fail the build when a script uses a sysfs parameter the driver lacks.
+
+    The module ships a captured kernel driver. A script that reads or writes a
+    parameter the driver does not export only fails at runtime, when the
+    stack is already half swapped, so the names are checked while packaging.
+    """
+    driver = output / 'payload/kernel/qca_cld3_peach_v2.ko'
+    if not driver.exists():
+        raise SystemExit('Missing captured kernel driver')
+    blob = driver.read_bytes()
+    missing = set()
+    for path in files(output):
+        if path.suffix != '.sh':
+            continue
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        for name in re.findall(r'/(opairshare_[a-z0-9_]+)', text):
+            if name.encode() not in blob:
+                missing.add((path.relative_to(output).as_posix(), name))
+    for path, name in sorted(missing):
+        raise SystemExit(f'Script uses a driver parameter that does not exist: {path} -> {name}')
+
+
 def check_script_syntax(output):
     """Reject scripts that the device shell cannot parse."""
     for path in sorted((output / 'bin').glob('*.sh')) + [output / 'customize.sh', output / 'service.sh',
@@ -130,8 +153,10 @@ def main():
     # New module paths, state paths, native helpers and environment names stay current.
     for path in (output / 'bin').glob('*.sh'):
         text = path.read_text().replace('opairshare_wonder_provider', PROVIDER)
-        text = text.replace('opairshare_hw_probe', LEGACY + '_hw_probe')
-        text = re.sub(r'\bopairshare_(bridge|channel|awdl|agg|tx)(?=_)', LEGACY + r'_\1', text)
+        # The shipped reference-r27 driver exports the opairshare_* sysfs
+        # parameters, so they must not be remapped to the legacy op13_* names.
+        # Only the Mosey discovery properties follow the legacy ABI, because
+        # the captured callback APK reads debug.op13.*.
         for prop in ('discovery', 'standby'):
             text = text.replace('debug.opairshare.' + prop, 'debug.' + LEGACY + '.' + prop)
         write_lf(path, text)
@@ -194,6 +219,7 @@ def main():
     # verification with `set: illegal option` and the install is rejected.
     normalize_payload(output)
     check_script_syntax(output)
+    verify_driver_abi(output)
     sums = ''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files(output) if p.name not in ('SHA256SUMS', 'ARCHIVE-SHA256SUMS'))
     # Newline translation would append CR to every path and break bin/verify.sh.
     with open(output / 'SHA256SUMS', 'w', newline='\n', encoding='utf-8') as manifest:
