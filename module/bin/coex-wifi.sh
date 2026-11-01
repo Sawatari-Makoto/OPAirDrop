@@ -66,7 +66,26 @@ coex_scope() { echo auto; }
 coex_requested() { return 0; }
 coex_wifi_eligible() { coex_wifi_read; }
 
+# True while the kernel-side AWDL session is armed on the AWDL channel.
+#
+# On platforms whose radio reports no concurrent capacity (this one logs
+# OPAIRSHARECOEXHW: dbs=0 sbs=0), arming AWDL makes the firmware pause the
+# STA association. The AirDrop data path runs on the AWDL interface
+# (wonder0), never on the STA, so an armed AWDL session is a valid
+# coexistence state even while the STA is disconnected.
+awdl_session_armed() {
+    P=/sys/module/qca_cld3_peach_v2/parameters
+    [ -r "$P/opairshare_channel_state" ] || return 1
+    grep -q 'accepting=1' "$P/opairshare_channel_state" || return 1
+    grep -q 'freq=5745' "$P/opairshare_channel_state" || return 1
+    [ -r "$P/opairshare_awdl_rx_mac_filter" ] || return 1
+    grep -q 'armed=1' "$P/opairshare_awdl_rx_mac_filter" || return 1
+    grep -q 'active=1' "$P/opairshare_awdl_rx_mac_filter" || return 1
+    grep -q 'fault=0' "$P/opairshare_awdl_rx_mac_filter" || return 1
+    return 0
+}
+
 coex_available() {
-    coex_requested && [ ! -e "$STATE/coex-wifi-blocked" ] &&
-        [ ! -e "$STATE/coex-session/invalidated" ] && coex_wifi_eligible
+    coex_requested && [ ! -e "$STATE/coex-session/invalidated" ] &&
+        { coex_wifi_eligible || awdl_session_armed; }
 }

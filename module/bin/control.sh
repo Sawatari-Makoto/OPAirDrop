@@ -90,7 +90,7 @@ retire_old_ui_state() {
 }
 passive_ui_baseline() {
     /system/bin/sh "$MODDIR/bin/receive-session.sh" clear || return 8
-    /system/bin/sh "$MODDIR/bin/transfer-idle.sh" || return 9
+    /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 2>/dev/null || true || return 9
     /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release || return 6
     [ -z "$(pidof "$PKG" || true)" ] || return 6
     reply=$(framework timeout 15 service call "$SERVICE" 2 i32 1 i32 4) || return 6
@@ -242,7 +242,7 @@ case "${1:-status}" in
         preflight; lock_stack
         /system/bin/sh "$MODDIR/bin/mount-check.sh" "$MODDIR"
         /system/bin/sh "$MODDIR/bin/transfer-idle.sh"
-        /system/bin/sh "$MODDIR/bin/grant-permissions.sh"
+        /system/bin/sh "$MODDIR/bin/grant-permissions.sh" 2>/dev/null || true
         rm -f "$STATE/disabled"
         if same_boot "$STATE/stack-boot"; then
             kernel_matches || exit 3

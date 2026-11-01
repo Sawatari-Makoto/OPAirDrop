@@ -43,7 +43,7 @@ foreground_state() {
     resumed=$(grep -E 'topResumedActivity=|mResumedActivity:|ResumedActivity:' "$activities_file" || true)
     if [ -z "$resumed" ];then echo unknown;return;fi
     if { [ "$SHARE_MODE" != oshare ] && printf '%s\n' "$resumed" | grep -Eq 'com\.google\.android\.gms/[^ ]*nearby\.sharing\.'; } ||
-       { [ "$SHARE_MODE" != quickshare ] && printf '%s\n' "$resumed" | grep -Eq '(com\.coloros\.oshare/(\.ui\.ShareActivity|com\.(oplus|coloros)\.oshare\.ui\.ShareActivity)|com\.android\.intentresolver/(\.ChooserActivity(Launcher)?|com\.android\.intentresolver\.ChooserActivity(Launcher)?))([ }]|$)'; }; then
+       { [ "$SHARE_MODE" != quickshare ] && printf '%s\n' "$resumed" | grep -Eq '(com\.coloros\.oshare/(\.ui\.(IOS)?ShareActivity|com\.(oplus|coloros)\.oshare\.ui\.(IOS)?ShareActivity)|com\.android\.intentresolver/(\.ChooserActivity(Launcher)?|com\.android\.intentresolver\.ChooserActivity(Launcher)?))([ }]|$)'; }; then
         echo open;return
     fi
     if [ "$SHARE_MODE" != oshare ] && [ -e "$STATE/ui-session" ] &&
@@ -113,7 +113,19 @@ monitor_coex_wifi() {
                 mv "$STATE/coex-wifi-blocked.tmp" "$STATE/coex-wifi-blocked" || { exec 6>&-;return 1; }
             echo "COEX_WIFI_SUSPENDED reason=$coex_wifi_reason class=${coex_wifi_class:-unknown} frequency=${coex_wifi_frequency:-unknown}"
         fi
-        [ ! -d "$STATE/coex-session" ] || touch "$STATE/coex-session/invalidated" || { exec 6>&-;return 1; }
+        # AirDrop traffic runs on the AWDL interface (wonder0), never on the
+        # STA association. This platform reports no concurrent capacity
+        # (OPAIRSHARECOEXHW: dbs=0 sbs=0), so arming AWDL makes the firmware
+        # pause the STA association. Releasing the session on that drop
+        # disabled the Mosey provider and restarted the native server, which
+        # re-applied the regulatory domain and flushed the armed wondertap -
+        # that destroyed the AirDrop session within ~2s of every start. Keep
+        # the armed session instead; the normal UI-close path still releases
+        # it, and a network change once Wi-Fi is back rebuilds it with a fresh
+        # policy through the class/scope/network check above.
+        if [ -d "$STATE/coex-session" ];then
+            echo 'COEX_WIFI_STA_PAUSED: keeping armed AWDL session'
+        fi
     fi
     if [ -e "$STATE/coex-session/invalidated" ];then coex_recover=1;fi
     exec 6>&-

@@ -1,5 +1,28 @@
 # OPAirDrop 更新日志
 
+## 1.1.0
+
+- 修复 AWDL 会话被 STA 掉线反复拆除的问题：原实现把「Wi-Fi 未连接」当作会话失效依据，
+  在无 DBS/SBS 并发能力的设备上，固件武装 AWDL 必然暂停 STA，于是会话每 7~8 秒重建一次，
+  AirDrop 目标只闪现 1~2 秒。改为在已武装会话期间保留会话，Wi-Fi 恢复后再按 class/scope
+  变化重建策略。
+- 修复 AirDrop 接收与广播路径无法激活的问题：接收就绪与 mDNS 广播此前都以「Wi-Fi 已连接」
+  为前提，而 AWDL 数据面在 wonder 接口上、与 STA 关联无关。改为在 AWDL 会话已武装时不再以
+  STA 关联状态作为门槛。
+- 修复 GMS 注册未就绪时留下 `callback-off` 标记导致共存会话被硬阻塞、AWDL 无法建立的问题：
+  发现补丁的挂载与 GMS 授权解耦，授权未就绪时同样应用补丁。
+- 修复冷启动时驱动身份校验因厂商 WLAN 模块体积随 OTA 漂移而失败、驱动不切换的问题：
+  只拒绝本模块 AWDL 栈被二次替换，厂商驱动身份交由 insmod 校验。
+- 修复开机阶段 PackageManager 尚未扫描到 Mosey 时授权失败、连带中断整个启动流程的问题：
+  权限授予改为非致命并带重试。
+- 修复分享模式切换在 Mosey 侧 hook 缺席时永久卡在 switching 状态的问题：
+  等待确认改为有界等待并在缺少应答时继续。
+- 改进开机脚本：默认开机自启（仅显式 `autostart-off` 才关闭），临时 root 设备在 root
+  尚未就绪时等待重试而不是永久写入 `disabled` 标记。
+- 前台界面识别补充 ColorOS 的 `IOSShareActivity`（与 iPhone 互传入口），避免该界面被误判为
+  已关闭而拆除共存会话。
+- 更新 KernelSU 在线更新源指向本仓库 Release。
+
 ## 1.0.31
 
 - 增加 KernelSU 兼容分支、Magisk、APatch 的 Root 工具与 SELinux 域适配，取消 KernelSU 和固定元模块目录硬性要求；支持管理器内置挂载及 Mountify 等实现，驱动启动前按实际系统文件检查挂载结果。新增组合仅通过主机模拟回归，仍待实机验收。

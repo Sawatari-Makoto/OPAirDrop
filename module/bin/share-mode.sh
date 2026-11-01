@@ -34,9 +34,21 @@ apply_share_mode() {
     /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&- || { exec 7>&-;return 9; }
     /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 8>&- >/dev/null 2>&1 || { exec 7>&-;return 9; }
     if [ -n "$(pidof "$PKG" 2>/dev/null || true)" ];then
-        share_dump=$(framework timeout 8 dumpsys activity service "$COMP") || { exec 7>&-;return 9; }
-        # An idle transfer dump alone does not acknowledge release of the bridge.
-        printf '%s\n' "$share_dump" | grep -q '^OPAIRSHARE_MODE switch_ready=1$' || { exec 7>&-;return 9; }
+        # The acknowledgement is published by the optional Mosey LSPosed hook.
+        # When that hook is not installed the marker never appears, so waiting
+        # for it blocks the share mode switch forever (the supervisor then
+        # re-arms the switch on every loop). Retry briefly, then continue on
+        # our own instead of failing the switch.
+        share_ack=0
+        share_wait=0
+        while [ "$share_wait" -lt 5 ];do
+            share_dump=$(framework timeout 8 dumpsys activity service "$COMP" 2>/dev/null) || share_dump=''
+            if printf '%s\n' "$share_dump" | grep -q '^OPAIRSHARE_MODE switch_ready=1$';then share_ack=1;break;fi
+            # The hook is absent when the dump carries no marker at all.
+            printf '%s\n' "$share_dump" | grep -q 'OPAIRSHARE_MODE' || break
+            share_wait=$((share_wait+1));sleep 1
+        done
+        [ "$share_ack" = 1 ] || echo 'SHARE_MODE_ACK_MISSING: continuing without the Mosey hook acknowledgement'
     fi
     exec 6> "$STATE/settings.flock"
     if ! flock -n 6 6>&6;then exec 6>&-;exec 7>&-;return 9;fi

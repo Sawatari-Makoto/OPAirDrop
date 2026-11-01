@@ -44,9 +44,12 @@ case "${1:-wanted}" in
     ready)
         # Only advertise in an owned, current-boot coexistence session. Legacy
         # UI-only operation may restore/reconnect STA and is not background RX.
+        # When the firmware pauses the STA for AWDL the association cannot be
+        # read at all, so an armed AWDL session stands in for that check.
         if receive_wanted && same_boot "$STATE/ui-session" &&
            same_boot "$STATE/coex-session/boot" &&
-           [ "$coex_wifi_network" = "$(cat "$STATE/coex-session/network" 2>/dev/null)" ]; then
+           { [ "$coex_wifi_network" = "$(cat "$STATE/coex-session/network" 2>/dev/null)" ] ||
+             awdl_session_armed; }; then
             /system/bin/setprop debug.opairshare.receive.ready 1
             echo 1
         else

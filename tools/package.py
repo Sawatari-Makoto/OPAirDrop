@@ -9,7 +9,7 @@ import shutil
 import stat
 import subprocess
 import zipfile
-from release import emit_metadata
+from release import emit_metadata, REPOSITORY
 
 ROOT = Path(__file__).resolve().parents[1]
 LEGACY = 'op' + '13'
@@ -31,6 +31,10 @@ def copy_tree(source, target):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, default=ROOT / 'local-inputs/reference-r27')
+    parser.add_argument('--repository', default=REPOSITORY,
+                        help='GitHub owner/repository used for the KernelSU update feed')
+    parser.add_argument('--archive-name', default=None,
+                        help='Release ZIP file name (default OPAirDrop-v<version>.zip)')
     args = parser.parse_args()
     reference = args.reference.resolve()
     props = dict(line.split('=', 1) for line in (ROOT / 'module/module.prop').read_text().splitlines() if '=' in line)
@@ -137,16 +141,22 @@ def main():
               'reference_binaries': {p.relative_to(reference).as_posix(): digest(p) for p in reused},
               'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
               'source_dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT, text=True).strip())}
-    (output / 'build-info.json').write_text(json.dumps(record, indent=2) + '\n')
+    with open(output / 'build-info.json', 'w', newline='\n', encoding='utf-8') as info:
+        info.write(json.dumps(record, indent=2) + '\n')
     for path in files(output):
         executable = path.suffix == '.sh' or path.name in ('mosey_server', 'opairshare-socket-buffer')
         path.chmod(0o755 if executable else 0o644)
     sums = ''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files(output) if p.name not in ('SHA256SUMS', 'ARCHIVE-SHA256SUMS'))
-    (output / 'SHA256SUMS').write_text(sums)
-    subprocess.run(['sh', str(output / 'bin/verify.sh'), str(output)], check=True)
+    # Newline translation would append CR to every path and break bin/verify.sh.
+    with open(output / 'SHA256SUMS', 'w', newline='\n', encoding='utf-8') as manifest:
+        manifest.write(sums)
+    # Forward slashes: a backslash path is mangled when MSYS translates the
+    # argument for a native helper, so the payload check would read the wrong
+    # file and report a checksum mismatch.
+    subprocess.run(['sh', (output / 'bin/verify.sh').as_posix(), output.as_posix()], check=True)
     dist = ROOT / 'dist'
     dist.mkdir(exist_ok=True)
-    archive = dist / f'OPAirDrop-v{props["version"]}-PJZ110.zip'
+    archive = dist / (args.archive_name or f'OPAirDrop-v{props["version"]}.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for path in files(output):
             info = zipfile.ZipInfo.from_file(path, path.relative_to(output).as_posix())
@@ -154,7 +164,7 @@ def main():
             info.external_attr = (stat.S_IFREG | path.stat().st_mode & 0o777) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, path.read_bytes())
-    emit_metadata(archive, dist)
+    emit_metadata(archive, dist, args.repository)
     print(f'{archive} ({archive.stat().st_size:,} bytes)')
     print(digest(archive))
 

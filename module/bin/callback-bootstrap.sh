@@ -33,10 +33,14 @@ done
 reply=$(framework timeout 15 service call "$SERVICE" 2 i32 1 i32 4)
 printf '%s\n' "$reply" > "$AUTH/native-stop.txt"
 if [ "$registered" != 1 ]; then
-    echo 'CALLBACK_AUTH_NOT_READY: original signed APK retained'
-    exit 6
+    echo 'CALLBACK_AUTH_NOT_READY: applying discovery patch without GMS auth'
 fi
-/system/bin/sh "$MODDIR/bin/callback.sh" on
+# Apply the callback (discovery) patch regardless of GMS auth outcome. The
+# APK bind-mount works independently of Google registration, and leaving
+# callback-off would block the AWDL coexist session on builds where GMS
+# registration is unavailable (e.g. CN GMS). Only abort if the patch itself
+# cannot be mounted.
+/system/bin/sh "$MODDIR/bin/callback.sh" on || { echo 'CALLBACK_PATCH_FAILED'; exit 6; }
 gms_pid=$(pidof com.google.android.gms)
 printf '%s\n' "$gms_pid" > "$AUTH/gms-pid"
 boot_id > "$AUTH/boot"
