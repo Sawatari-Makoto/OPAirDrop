@@ -62,15 +62,26 @@ close_session() {
     /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&- || return 8
     # Inspect App transfer state before releasing the original provider.
     /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 8>&- || return 9
+    # The idle policy releases the session on its own. In that case the app
+    # is only suspended, not disabled, so the user can still open Quick
+    # Share by hand while the radio is down.
+    idle_release=0
     if [ "${1:-normal}" != recover ];then
         [ "$(foreground_state)" = closed ] || return 10
-        # Background reception normally keeps the session open. The idle policy
-        # is the one exception that allows it to be released, so the session
-        # can be taken down once the user stopped asking for transfers.
-        if [ "$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)" = 1 ] &&
-           [ "$(idle_may_sleep)" = 1 ];then return 10;fi
+        # Background reception normally keeps the session open, so the
+        # session is only released when the idle policy says the user has
+        # stopped asking for transfers. In that case the app is suspended
+        # rather than disabled, so Quick Share can still be opened by hand.
+        if [ "$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)" = 1 ];then
+            [ "$(idle_may_sleep)" = 0 ] || return 10
+            idle_release=1
+        fi
     fi
-    /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release 8>&- || return 6
+    if [ "$idle_release" = 1 ];then
+        /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" suspend 8>&- || return 6
+    else
+        /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release 8>&- || return 6
+    fi
     [ -z "$(pidof "$PKG" || true)" ] || return 6
     reply=$(framework timeout 15 service call "$SERVICE" 2 i32 1 i32 4) || return 6
     printf '%s\n' "$reply" > "$STATE/ui-native-stop.txt"
@@ -142,6 +153,8 @@ provider_failures=0
 provider_ready=0
 receive_published=0
 receive_samples=10
+idle_sleeping=0
+foreground_was=unknown
 while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
       [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
     kernel_matches || { echo 'Driver identity changed; no automatic reload'; exit 6; }
@@ -193,17 +206,37 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
     foreground=$(foreground_state)
     # A visible share surface is an explicit intent to send or receive, so it
-    # keeps the session armed and refreshes the idle timer.
-    if [ "$foreground" = open ];then idle_touch;fi
+    # keeps the session armed and refreshes the idle timer. The timer is
+    # refreshed on the transition only, so a surface that stays open does not
+    # keep the file written every second.
+    if [ "$foreground" = open ];then
+        if [ "$foreground_was" != open ];then idle_touch;fi
+        foreground_was=open
+    else
+        foreground_was=$foreground
+    fi
     # Background reception is owned by the module, but only while the user is
     # still expected to use it. After the idle period the radio is released so
     # the device stops paying for an armed AWDL session all day; the next
     # share surface brings it straight back.
     if [ "$receive_eligible" = 1 ] && [ "$foreground" != open ];then
+        # The transfer state is only inspected once the idle period has
+        # actually passed, so the supervisor does not run a service dump on
+        # every sample.
         if [ "$(idle_may_sleep)" = 0 ];then
-            receive_eligible=0
-            echo "IDLE_SLEEP after $(idle_remaining)s without activity"
+            if idle_transfer_active;then
+                idle_touch
+            else
+                receive_eligible=0
+                # Report the transition once, not on every sample.
+                if [ "$idle_sleeping" != 1 ];then
+                    idle_sleeping=1
+                    echo "IDLE_SLEEP after $(idle_elapsed)s without activity"
+                fi
+            fi
         fi
+    else
+        idle_sleeping=0
     fi
     if [ "$receive_eligible" != 1 ] && [ "$receive_published" = 1 ];then
         /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-

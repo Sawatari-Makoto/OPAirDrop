@@ -52,5 +52,16 @@ case "${1:-status}" in
         fi
         rm -f "$STATE/delegate-owned"
         ;;
-    *) echo 'Usage: provider.sh status|ensure|adopt|release';exit 2;;
+    suspend)
+        # Stop the provider without disabling the package. Used when the idle
+        # policy releases the radio: the app stays enabled so the user can
+        # still open Quick Share by hand, the module simply owns no
+        # foreground delegate at the moment.
+        framework am force-stop --user 0 "$PKG"
+        if same_boot "$STATE/delegate-owned"; then
+            framework cmd activity set-foreground-service-delegate --user 0 "$PKG" stop || true
+        fi
+        rm -f "$STATE/delegate-owned"
+        ;;
+    *) echo 'Usage: provider.sh status|ensure|adopt|release|suspend';exit 2;;
 esac

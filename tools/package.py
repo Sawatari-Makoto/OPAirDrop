@@ -120,6 +120,28 @@ def check_sourced_scripts(output):
                              'guard the dispatch so sourcing it does not run the CLI')
 
 
+def check_state_writes(output):
+    """Reject state writes that are silently skipped.
+
+    A helper that creates its state directory with mkdir and then treats a
+    failing mkdir as fatal never writes anything once the directory exists,
+    because mkdir fails on an existing directory. The state is then never
+    refreshed and the behaviour silently changes. Any mkdir that guards a
+    state write has to tolerate the directory already being there.
+    """
+    pattern = re.compile(r'mkdir[^\n]*?\|\|\s*(?:return|exit)')
+    for path in sorted((output / 'bin').glob('*.sh')):
+        text = path.read_text(encoding='utf-8', errors='ignore')
+        for match in pattern.finditer(text):
+            line = text[text.rfind('\n', 0, match.start()) + 1:text.find('\n', match.end())]
+            # A directory that is created for a state write must tolerate the
+            # directory already being there.
+            if '.preparing' in line or '.tmp' in line or '.new' in line:
+                continue
+            raise SystemExit(f'{path.relative_to(output).as_posix()}: state directory creation aborts the write when the '
+                             f'directory already exists: {line.strip()}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, default=ROOT / 'local-inputs/reference-r27')
@@ -246,6 +268,7 @@ def main():
     normalize_payload(output)
     check_script_syntax(output)
     check_sourced_scripts(output)
+    check_state_writes(output)
     verify_driver_abi(output)
     sums = ''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files(output) if p.name not in ('SHA256SUMS', 'ARCHIVE-SHA256SUMS'))
     # Newline translation would append CR to every path and break bin/verify.sh.

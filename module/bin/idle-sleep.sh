@@ -37,7 +37,10 @@ idle_now_ms() { awk '{printf "%.0f",$1*1000}' /proc/uptime; }
 # Record activity. Called whenever the user opens a share surface or a
 # transfer runs.
 idle_touch() {
-    mkdir -m 700 "$IDLE_STATE" 2>/dev/null || return 0
+    # The directory usually exists already, so a failing mkdir is not an
+    # error here; only the write itself has to succeed.
+    mkdir -m 700 "$IDLE_STATE" 2>/dev/null || true
+    [ -d "$IDLE_STATE" ] || return 0
     idle_now_ms > "$IDLE_STATE/last-active" 2>/dev/null || true
     return 0
 }
@@ -54,6 +57,15 @@ idle_remaining() {
     echo "$left"
 }
 
+# Seconds since the last recorded activity.
+idle_elapsed() {
+    last=$(cat "$IDLE_STATE/last-active" 2>/dev/null || true)
+    case "$last" in ''|*[!0-9]*) echo 0;return;; esac
+    elapsed=$(( $(idle_now_ms) - last ))
+    [ "$elapsed" -ge 0 ] || elapsed=0
+    echo $((elapsed / 1000))
+}
+
 # Report whether the session may go to sleep.
 #   0 -> sleep is allowed
 #   1 -> keep the session
@@ -67,6 +79,14 @@ idle_may_sleep() {
     echo 0
 }
 
+# A running transfer keeps the session alive even when the idle period has
+# passed, so a large file is never interrupted by the sleep.
+idle_transfer_active() {
+    records=$(/system/bin/timeout 6 /system/bin/dumpsys activity service "$COMP" 2>/dev/null) || return 1
+    printf '%s\n' "$records" | grep -Eq \
+        'OPAIRSHARE_RECEIVE busy=1([[:space:]]|$)|isTransferFinished=false|activeTransfers=\[[^]]+\]|Active Transfers \([1-9][0-9]*\)|Receive provider transferring: true'
+}
+
 # Only run the command line interface when executed directly.
 case "${0##*/}" in
     idle-sleep.sh)
@@ -74,6 +94,7 @@ case "${0##*/}" in
             touch) idle_touch;echo 'IDLE_ACTIVITY_RECORDED';;
             may-sleep) idle_may_sleep;;
             remaining) idle_remaining;;
+            elapsed) idle_elapsed;;
             timeout) idle_timeout_seconds;;
             set-timeout)
                 [ "$#" = 2 ] || exit 2
