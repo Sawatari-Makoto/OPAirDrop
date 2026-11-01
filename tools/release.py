@@ -94,9 +94,13 @@ def emit_metadata(archive, output, repository=REPOSITORY, tag=None):
     checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
     # Validate everything before writing release assets.
     output.mkdir(parents=True, exist_ok=True)
-    (output / 'update.json').write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
-    (output / 'changelog.md').write_text(notes)
-    (output / (archive.name + '.sha256')).write_text(f'{checksum}  {archive.name}\n')
+    # LF only: text mode would emit CRLF on Windows and change the asset bytes.
+    def write_lf(path, text):
+        path.write_bytes(text.replace('\r\n', '\n').replace('\r', '\n').encode('utf-8'))
+
+    write_lf(output / 'update.json', json.dumps(metadata, ensure_ascii=False, indent=2) + '\n')
+    write_lf(output / 'changelog.md', notes)
+    write_lf(output / (archive.name + '.sha256'), f'{checksum}  {archive.name}\n')
     return metadata
 
 

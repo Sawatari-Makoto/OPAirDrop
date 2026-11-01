@@ -28,6 +28,49 @@ def copy_tree(source, target):
     shutil.copytree(source, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns('.DS_Store'))
 
 
+def write_lf(path, text):
+    """Write UTF-8 text with LF endings.
+
+    Path.write_text() opens the file in text mode, so Windows rewrites every
+    '\\n' as '\\r\\n'. The manager runs the module scripts with a POSIX shell
+    on the device, where a trailing CR breaks option parsing such as
+    `set -eu` and aborts the install with a misleading payload error.
+    """
+    path.write_bytes(text.replace('\r\n', '\n').replace('\r', '\n').encode('utf-8'))
+
+
+def normalize_payload(output):
+    """Force LF on every text payload and refuse to ship a stray CR."""
+    changed = []
+    for path in files(output):
+        data = path.read_bytes()
+        if b'\x00' in data[:4096]:
+            continue
+        fixed = data.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+        if fixed != data:
+            path.write_bytes(fixed)
+            changed.append(path.relative_to(output).as_posix())
+    for path in files(output):
+        if path.suffix != '.sh':
+            continue
+        if b'\r' in path.read_bytes():
+            raise SystemExit(f'Carriage return left in script: {path.relative_to(output).as_posix()}')
+    if changed:
+        print(f'Normalized line endings for {len(changed)} payload files')
+    return changed
+
+
+def check_script_syntax(output):
+    """Reject scripts that the device shell cannot parse."""
+    for path in sorted((output / 'bin').glob('*.sh')) + [output / 'customize.sh', output / 'service.sh',
+                                                         output / 'post-fs-data.sh', output / 'uninstall.sh']:
+        if not path.exists():
+            continue
+        result = subprocess.run(['sh', '-n', path.as_posix()], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise SystemExit(f'Shell syntax error in {path.relative_to(output).as_posix()}: {result.stderr.strip()}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference', type=Path, default=ROOT / 'local-inputs/reference-r27')
@@ -91,7 +134,7 @@ def main():
         text = re.sub(r'\bopairshare_(bridge|channel|awdl|agg|tx)(?=_)', LEGACY + r'_\1', text)
         for prop in ('discovery', 'standby'):
             text = text.replace('debug.opairshare.' + prop, 'debug.' + LEGACY + '.' + prop)
-        path.write_text(text)
+        write_lf(path, text)
     identity = json.loads((reference / 'kernel-identity.json').read_text())
     kernel_identity = output / 'bin/kernel-identity.sh'
     text = kernel_identity.read_text()
@@ -99,7 +142,7 @@ def main():
         text = text.replace(f'NOTE_{name}=BUILD_REQUIRED', f'NOTE_{name}=' + identity[name + '.ko']['build_id_note'])
     if 'BUILD_REQUIRED' in text:
         raise SystemExit('Unresolved kernel build identities')
-    kernel_identity.write_text(text)
+    write_lf(kernel_identity, text)
 
     # Check both original and patched APK/split manifests against the assembled files.
     app = output / 'system/system_ext/priv-app/MoseyApp'
@@ -113,7 +156,7 @@ def main():
         shutil.copy2(ROOT / name, output / name)
     copy_tree(ROOT / 'LICENSES', output / 'LICENSES')
     copy_tree(ROOT / 'third-party/unlock-cn-gms', output / 'third-party/unlock-cn-gms')
-    (output / 'README.md').write_text(
+    write_lf(output / 'README.md',
         f'# OPAirDrop {props["version"]}\n\n{props["description"]}\n\n'
         '设备准入：Oplus 品牌 / sun 平台；内核版本不作为安装门槛，实际驱动 ABI 仍须兼容。'
         '不限制型号、SDK、SoC 属性及原厂驱动身份。已验证机型 PJZ110；其他机型仍需实际收发验证。\n\n'
@@ -146,6 +189,11 @@ def main():
     for path in files(output):
         executable = path.suffix == '.sh' or path.name in ('mosey_server', 'opairshare-socket-buffer')
         path.chmod(0o755 if executable else 0o644)
+    # The archive is extracted and executed by the manager on the device, so
+    # every text payload has to stay LF. A CRLF script fails the payload
+    # verification with `set: illegal option` and the install is rejected.
+    normalize_payload(output)
+    check_script_syntax(output)
     sums = ''.join(f'{digest(p)}  {p.relative_to(output).as_posix()}\n' for p in files(output) if p.name not in ('SHA256SUMS', 'ARCHIVE-SHA256SUMS'))
     # Newline translation would append CR to every path and break bin/verify.sh.
     with open(output / 'SHA256SUMS', 'w', newline='\n', encoding='utf-8') as manifest:
@@ -164,6 +212,17 @@ def main():
             info.external_attr = (stat.S_IFREG | path.stat().st_mode & 0o777) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, path.read_bytes())
+    # Final gate: the shipped archive itself must not contain CR in text
+    # payloads. This is what the manager unpacks and runs on the device.
+    with zipfile.ZipFile(archive) as z:
+        for entry in z.infolist():
+            if entry.is_dir():
+                continue
+            data = z.read(entry)
+            if b'\x00' in data[:4096]:
+                continue
+            if b'\r' in data:
+                raise SystemExit(f'Carriage return in archive payload: {entry.filename}')
     emit_metadata(archive, dist, args.repository)
     print(f'{archive} ({archive.stat().st_size:,} bytes)')
     print(digest(archive))

@@ -2,6 +2,10 @@
 
 ## 1.1.0
 
+- 修复发行包在 KernelSU 中安装必失败的问题：打包脚本用文本模式写回 `bin/*.sh`，Windows 会把
+  换行写成 CRLF，设备端管理器执行 `bin/verify.sh` 时 `set -eu\r` 被判定为非法选项，
+  安装中止并报「Payload integrity check failed」。打包改为二进制写入并强制 LF，
+  同时新增构建期护栏：归档内任何文本文件残留 CR 即构建失败，安装脚本也会打印具体校验原因。
 - 修复 AWDL 会话被 STA 掉线反复拆除的问题：原实现把「Wi-Fi 未连接」当作会话失效依据，
   在无 DBS/SBS 并发能力的设备上，固件武装 AWDL 必然暂停 STA，于是会话每 7~8 秒重建一次，
   AirDrop 目标只闪现 1~2 秒。改为在已武装会话期间保留会话，Wi-Fi 恢复后再按 class/scope
