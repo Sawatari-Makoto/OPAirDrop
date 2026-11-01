@@ -113,7 +113,7 @@ status() {
         nss "$(read_p passthru_awdl_nss)" \
         batch "$(read_p passthru_awdl_amsdu_max)" \
         collect "$(read_p passthru_awdl_collect_us)" \
-        callback "$([ -e "$STATE/callback-off" ] && echo off || echo on)"
+        callback "$(same_boot "$STATE/callback/boot" && echo on || echo off)"
 }
 idle() {
     [ ! -e "$STATE/ui-session" ] && [ ! -d "$STATE/coex-session" ] &&
@@ -239,7 +239,7 @@ case "${1:-status}" in
         exec 9> "$STATE/stack.flock";flock -n 9 9>&9 || fail '底层正在执行其他操作，请稍后重试。'
         exec 6> "$STATE/settings.flock";flock -n 6 6>&6 || fail '发现会话正在启动，请稍后重试。'
         idle
-        [ "$2" != on ] || [ ! -e "$STATE/callback-off" ] || fail '先恢复进度/发现补丁后再开启共存。'
+        [ "$2" != on ] || same_boot "$STATE/callback/boot" || fail '先恢复进度/发现补丁后再开启共存。'
         old_coex=$(coexist);old_scope=$(scope);old_profile=$(profile);old_auto=$(flag autostart)
         if [ "$2:$3:$4:$5" = "$old_coex:$old_scope:$old_profile:$old_auto" ];then status;exit 0;fi
         snapshot=$(mktemp -d "$STATE/webui-settings.XXXXXX")

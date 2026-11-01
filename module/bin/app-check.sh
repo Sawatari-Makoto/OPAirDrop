@@ -7,8 +7,9 @@ case "${1:-runtime}" in
     original) manifest="$MODDIR/APP-SHA256SUMS";;
     patched) manifest="$MODDIR/APP-CALLBACK-SHA256SUMS";;
     runtime)
-        if [ -e "$STATE/callback-off" ]; then manifest="$MODDIR/APP-SHA256SUMS"
-        else manifest="$MODDIR/APP-CALLBACK-SHA256SUMS"; fi;;
+        # Report what is really mounted, not what a leftover marker claims.
+        if same_boot "$STATE/callback/boot"; then manifest="$MODDIR/APP-CALLBACK-SHA256SUMS"
+        else manifest="$MODDIR/APP-SHA256SUMS"; fi;;
     *) exit 2;;
 esac
 paths=$(framework pm path --user 0 "$PKG" | sed -n 's/^package://p')

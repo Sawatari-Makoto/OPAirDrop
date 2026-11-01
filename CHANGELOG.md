@@ -2,6 +2,15 @@
 
 ## 1.1.0
 
+- 修复「Quick Share 不可用、对方识别不到本机」：发现补丁（callback/discovery）本应让 Mosey
+  开启接收端并用 mDNS 广播本机，但启动脚本在内部换包时写入了 `callback-off` 标记；一旦换包
+  中途失败（radio 尚未释放导致 `radio session still active`），该标记会残留，后续每次开机都
+  走"已禁用"早退分支，补丁永远不再挂载 —— 接收端不启动、不广播、AWDL 会话也被
+  `COEX_BLOCKED` 拒绝武装。现在内部换包改用 `restore`/`ensure`（不触碰该标记），
+  `callback.sh` 等待 radio 收敛后再换包并允许重试，残留标记会按"补丁未生效"自愈；
+  AWDL 会话与 WebUI 状态改为按补丁实际挂载状态判定。
+- 修复系统分享面板（ColorOS 的 `com.android.internal.app.ResolverActivity`）不被识别为分享界面，
+  导致打开分享面板时模块误判界面已关闭并拆除 AWDL 会话、Quick Share 面板看不到设备。
 - 修复模块在运行状态下被重新安装后，下一次开机三个服务全部未启动的问题：开机脚本把上一次
   遗留的 `startup-incomplete` 标记当作致命错误，直接写入 `disabled` 并退出，模块就此永久停用。
   现在改为记录并清除该标记后重试；同时驱动替换前的系统挂载检查失败时立即中止，

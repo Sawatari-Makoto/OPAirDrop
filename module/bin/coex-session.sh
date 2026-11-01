@@ -30,7 +30,10 @@ case "${1:-status}" in
             flock -n 6 6>&6 || { echo 'SETTINGS_BUSY retry next UI sample';exit 8; }
         fi
         idle
-        [ ! -e "$STATE/callback-off" ] || { echo 'COEX_BLOCKED callback patch disabled';exit 8; }
+        # The discovery patch has to be mounted for this boot. The switched-off
+        # marker alone is not enough: an interrupted APK swap used to leave it
+        # behind and blocked the AWDL session for the whole boot.
+        same_boot "$STATE/callback/boot" || { echo 'COEX_BLOCKED callback patch not applied';exit 8; }
         [ -z "$(getprop debug.opairshare.discovery)" ] && [ -z "$(getprop debug.opairshare.standby)" ] || exit 8
         [ ! -e "$S" ] && [ ! -e "$S.preparing" ] || exit 8
         if ! coex_wifi_eligible;then

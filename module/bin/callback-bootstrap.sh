@@ -7,8 +7,16 @@ AUTH="$STATE/callback-auth"
 startup_trace AUTH_BEGIN
 mkdir -p "$AUTH"
 if [ -e "$STATE/callback-off" ]; then
-    /system/bin/sh "$MODDIR/bin/app-check.sh" original
-    exit 0
+    # The marker is written by the internal APK swap. A swap that was
+    # interrupted left it behind, and the early exit then kept the discovery
+    # patch unmounted for the whole boot: the receive provider never started,
+    # nothing was advertised over mDNS and the AWDL session stayed blocked.
+    # Only a patch that is really mounted is treated as "switched off".
+    if same_boot "$STATE/callback/boot"; then
+        /system/bin/sh "$MODDIR/bin/app-check.sh" original
+        exit 0
+    fi
+    rm -f "$STATE/callback-off"
 fi
 gms_pid=$(pidof com.google.android.gms || true)
 if same_boot "$AUTH/boot" && [ -n "$gms_pid" ] &&
@@ -18,7 +26,9 @@ if same_boot "$AUTH/boot" && [ -n "$gms_pid" ] &&
 fi
 /system/bin/sh "$MODDIR/bin/transfer-idle.sh"
 # control.sh's passive baseline has already stopped the old provider/radio.
-/system/bin/sh "$MODDIR/bin/callback.sh" off
+# `restore` and `ensure` swap the APK without touching the switched-off
+# marker, so an interrupted swap cannot disable the patch for the next boot.
+/system/bin/sh "$MODDIR/bin/callback.sh" restore
 /system/bin/sh "$MODDIR/bin/provider.sh" ensure
 n=0;registered=0
 while [ "$n" -lt 20 ]; do
@@ -40,7 +50,15 @@ fi
 # callback-off would block the AWDL coexist session on builds where GMS
 # registration is unavailable (e.g. CN GMS). Only abort if the patch itself
 # cannot be mounted.
-/system/bin/sh "$MODDIR/bin/callback.sh" on || { echo 'CALLBACK_PATCH_FAILED'; exit 6; }
+# The radio may still be settling after the provider was released, so retry
+# before giving up: without the patch nothing is advertised over mDNS.
+patched=0
+n=0
+while [ "$n" -lt 4 ]; do
+    if /system/bin/sh "$MODDIR/bin/callback.sh" ensure; then patched=1;break;fi
+    n=$((n+1));sleep 5
+done
+[ "$patched" = 1 ] || { echo 'CALLBACK_PATCH_FAILED'; exit 6; }
 gms_pid=$(pidof com.google.android.gms)
 printf '%s\n' "$gms_pid" > "$AUTH/gms-pid"
 boot_id > "$AUTH/boot"

@@ -23,8 +23,18 @@ active_base() {
 }
 idle() {
     /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 7>&-
-    [ -z "$(pidof "$PKG" || true)" ] || die 'close Quick Share before changing the patch'
     p=/sys/module/qca_cld3_peach_v2/parameters/opairshare_channel_state
+    # The provider releases the radio asynchronously, so wait for the app and
+    # the AWDL session to settle instead of failing on the first sample.
+    n=0
+    while [ "$n" -lt 20 ]; do
+        app_pid=$(pidof "$PKG" 2>/dev/null || true)
+        radio_busy=0
+        if [ -r "$p" ] && ! grep -q 'accepting=0 vdev=255 freq=0' "$p"; then radio_busy=1;fi
+        if [ -z "$app_pid" ] && [ "$radio_busy" = 0 ]; then return 0;fi
+        sleep 1;n=$((n+1))
+    done
+    [ -z "$(pidof "$PKG" || true)" ] || die 'close Quick Share before changing the patch'
     [ ! -r "$p" ] || grep -q 'accepting=0 vdev=255 freq=0' "$p" || die 'radio session still active'
 }
 owned() {
