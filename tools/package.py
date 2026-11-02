@@ -8,10 +8,13 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import zipfile
 from release import emit_metadata, REPOSITORY
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'tools' / 'kernel'))
+import vermagic  # noqa: E402  (path is prepared above)
 LEGACY = 'op' + '13'
 PROVIDER = 'oneplus' + '13_wonder_provider'
 
@@ -211,10 +214,20 @@ def main():
     identity = json.loads((reference / 'kernel-identity.json').read_text())
     kernel_identity = output / 'bin/kernel-identity.sh'
     text = kernel_identity.read_text()
+    # The stock build ids of a device differ per device and per firmware.
+    # They are read on the device itself at install time, so no device
+    # specific identity may ship with the package.
+    text = ''.join(line + '\n' for line in text.splitlines()
+                   if not line.startswith('STOCK_NOTE_'))
     for name in ('mac80211', 'qca_cld3_peach_v2', 'wonder', PROVIDER):
         text = text.replace(f'NOTE_{name}=BUILD_REQUIRED', f'NOTE_{name}=' + identity[name + '.ko']['build_id_note'])
+    family, page_size = vermagic.abi(output / 'payload/kernel/qca_cld3_peach_v2.ko')
+    text = text.replace('KERNEL_ABI_FAMILY=BUILD_REQUIRED', f'KERNEL_ABI_FAMILY={family}')
+    text = text.replace('KERNEL_ABI_PAGESIZE=BUILD_REQUIRED', f'KERNEL_ABI_PAGESIZE={page_size}')
     if 'BUILD_REQUIRED' in text:
         raise SystemExit('Unresolved kernel build identities')
+    if 'STOCK_NOTE_' in text:
+        raise SystemExit('A device specific stock build id reached the package')
     write_lf(kernel_identity, text)
 
     # Check both original and patched APK/split manifests against the assembled files.
@@ -231,8 +244,12 @@ def main():
     copy_tree(ROOT / 'third-party/unlock-cn-gms', output / 'third-party/unlock-cn-gms')
     write_lf(output / 'README.md',
         f'# OPAirDrop {props["version"]}\n\n{props["description"]}\n\n'
-        '设备准入：Oplus 品牌 / sun 平台；内核版本不作为安装门槛，实际驱动 ABI 仍须兼容。'
-        '不限制型号、SDK、SoC 属性及原厂驱动身份。已验证机型 PJZ110；其他机型仍需实际收发验证。\n\n'
+        '设备准入：Oplus 品牌 / sun 平台（骁龙 8 Elite 平台）/ 内核 ABI 家族 '
+        f'{family}（{page_size} 页）。内核以 ABI 家族为准：同一家族的不同 build id 与固件均可安装，'
+        '跨家族内核会被拒绝。'
+        '不限制机型型号、SDK、SoC 属性及原厂驱动身份——原厂驱动的真实 build id 由每台设备在安装时'
+        '自行读取并记录在 /data/adb/opairshare/kernel-identity.sh，发行包内不写死任何一台设备的'
+        '原厂构建标识。已验证机型 PJZ110；其他机型仍需实际收发验证。\n\n'
         '支持 KernelSU 及兼容分支、Magisk、APatch 的模块安装环境；系统文件可由管理器内置挂载、'
         'Magic Mount、OverlayFS 或 Mountify 等兼容实现提供，不强制要求元模块目录。'
         '管理器和挂载组合仍需实机验证。安装时检测 LSPosed，自动安装并启用 OShare，'

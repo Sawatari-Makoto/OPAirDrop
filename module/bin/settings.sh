@@ -126,6 +126,7 @@ status() {
         inset_bottom "$inset_bottom" \
         idle_timeout "$(idle_timeout_seconds)" \
         idle_remaining "$(idle_remaining)" \
+        airdrop_keepalive "$(flag airdrop-keepalive)" \
         callback "$(same_boot "$STATE/callback/boot" && echo on || echo off)"
 }
 idle() {
@@ -205,6 +206,19 @@ case "${1:-status}" in
         [ "$(id -u)" = 0 ] || fail '需要 Root 权限。'
         result=$(/system/bin/sh "$MODDIR/bin/idle-sleep.sh" set-timeout "$2" 2>&1) || fail '保存空闲时间失败。'
         [ "$result" = "$2" ] || fail '空闲时间保存结果未确认，请刷新后核对。'
+        status
+        ;;
+    airdrop-keepalive)
+        [ "$#" = 2 ] || exit 2
+        case "$2" in on|off) ;; *) exit 2;; esac
+        [ "$(id -u)" = 0 ] || fail '需要 Root 权限。'
+        if [ "$2" = on ];then
+            result=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" keepalive-on 2>&1) || fail '开启一加互传常驻失败。'
+        else
+            result=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" keepalive-off 2>&1) || fail '关闭一加互传常驻失败。'
+        fi
+        expect=$(printf '%s' "$2" | tr '[:lower:]' '[:upper:]')
+        [ "$result" = "$expect" ] || fail '一加互传常驻设置未确认，请刷新后核对。'
         status
         ;;
     speed)

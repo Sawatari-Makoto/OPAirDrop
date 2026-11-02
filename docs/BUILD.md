@@ -292,11 +292,11 @@ python3 tools/kernel/module_abi.py \
 python3 tools/kernel/module_exports.py --dump /path/to/module.ko
 ```
 
-装配模块时，用当次构建的四个内核模块更新 `bin/kernel-identity.sh` 中的 `NOTE_*`。模板中的 `BUILD_REQUIRED` 表示待填入的构建标识，`STOCK_NOTE_*` 保留为原厂构建记录，不再用作设备准入或恢复白名单。获取这些信息的工具随目标内核工具链提供。
+装配模块时，用当次构建的四个内核模块更新 `bin/kernel-identity.sh` 中的 `NOTE_*`，并由 `tools/kernel/vermagic.py` 从内核模块的 vermagic 推导 `KERNEL_ABI_FAMILY` 与 `KERNEL_ABI_PAGESIZE`。模板中的 `BUILD_REQUIRED` 表示待填入的构建标识。发行包内不再包含任何 `STOCK_NOTE_*`：原厂驱动的真实 build id 由每台设备在安装时与每次开机前自行读取，写入 `/data/adb/opairshare/kernel-identity.sh`，并用于恢复原厂驱动时的校验。获取这些信息的工具随目标内核工具链提供。
 
-安装和启动通过 `bin/compatibility.sh` 共用设备准入检测，要求 Oplus 品牌、`sun` 平台。不检查内核版本、SDK、SoC 属性、原厂模块文件或其构建身份，也不按原厂模块大小设置白名单。修改版驱动的实际 ABI 兼容性由内核加载过程判断；模块自身 payload 的构建身份仍用于运行状态与所有权检查。
+安装和启动通过 `bin/compatibility.sh` 共用设备准入检测，要求 Oplus 品牌、`sun` 平台，以及与随包内核模块 vermagic 一致的内核 ABI 家族与页面大小。不检查型号、SDK、SoC 属性、原厂模块文件或其构建身份，也不按原厂模块大小设置白名单。修改版驱动的实际 ABI 兼容性由内核加载过程判断；模块自身 payload 的构建身份仍用于运行状态与所有权检查。
 
-主机回归入口为 `python3 tests/test_compatibility.py`。现有发行 ZIP 的 `PJZ110` 文件名后缀保留以兼容发布工具，不参与设备准入判断。通过检测不代替目标设备上的驱动加载、固件与实际收发验证。
+主机回归入口为 `python3 tests/test_compatibility.py`。发行 ZIP 不带机型后缀，机型不参与设备准入判断。通过检测不代替目标设备上的驱动加载、固件与实际收发验证。
 
 ## 8. 模块装配
 

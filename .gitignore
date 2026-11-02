@@ -30,3 +30,4 @@ local.properties
 /docs/verification.json
 /docs/OSHARE-DEXKIT.md
 /docs/OSHARE-RECEIVE-LIFECYCLE.md
+tools/_*.sh

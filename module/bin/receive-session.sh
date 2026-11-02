@@ -6,20 +6,47 @@ MODDIR=$(CDPATH= cd -- "${0%/*}/.." && pwd)
 . "$MODDIR/bin/coex-wifi.sh"
 . "$MODDIR/bin/share-mode.sh"
 [ "$(id -u)" = 0 ] || exit 2
+init_state
 
 receive_wanted() {
     [ "$(saved_share_mode)" = "$(active_share_mode)" ] || return 1
     [ "$(active_share_mode)" != quickshare ] || return 1
-    # User-selected policy: the enabled module owns continuous reception.
-    # OShare is the invitation UI host, not the switch or ten-minute timer.
+    # Whether the AirDrop wireless session may be opened at all: the module is
+    # enabled, the stack is owned and coexistence is available. This is the
+    # admission gate used when the share surface is open.
     same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] &&
         coex_available
 }
 
+# Background (always-on) reception only. The session still arms whenever the
+# share surface is open regardless of this flag; this only governs the
+# resident/keep-alive path that holds the radio armed with no UI. It is OFF by
+# default so the AWDL session is not held 24/7, and the user opts in with the
+# "一加互传 常驻" (keep-alive) toggle.
+airdrop_keepalive() {
+    [ -e "$STATE/airdrop-keepalive" ]
+}
+receive_background() {
+    receive_wanted && airdrop_keepalive
+}
+
 case "${1:-wanted}" in
     wanted)
-        if receive_wanted; then echo 1; else echo 0; fi
+        if receive_background; then echo 1; else echo 0; fi
+        ;;
+    keepalive)
+        if airdrop_keepalive; then echo on; else echo off; fi
+        ;;
+    keepalive-on)
+        [ "$(id -u)" = 0 ] || exit 2
+        touch "$STATE/airdrop-keepalive"
+        echo ON
+        ;;
+    keepalive-off)
+        [ "$(id -u)" = 0 ] || exit 2
+        rm -f "$STATE/airdrop-keepalive"
+        echo OFF
         ;;
     ensure-ui)
         receive_wanted || exit 9
@@ -69,5 +96,5 @@ case "${1:-wanted}" in
             rm -f "$STATE/receive-delegate-owned"
         fi
         ;;
-    *) echo 'Usage: receive-session.sh wanted|ensure-ui|ready|clear|release-host' >&2; exit 2;;
+    *) echo 'Usage: receive-session.sh wanted|keepalive|keepalive-on|keepalive-off|ensure-ui|ready|clear|release-host' >&2; exit 2;;
 esac

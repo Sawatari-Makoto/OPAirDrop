@@ -53,9 +53,9 @@ OPAirDrop 是一个 Root 模块，为一加 13（PJZ110）等 Oplus 设备开启
 
 | 项目 | 要求 |
 | --- | --- |
-| 设备 | Oplus 品牌、sun 平台，已验证 PJZ110 |
+| 设备 | Oplus 品牌、sun 平台（骁龙 8 Elite 平台），不限制机型，已验证 PJZ110 |
 | 系统 | ColorOS / Oplus 系统，已验证 SDK37，不限制 SDK |
-| 内核与驱动 | 已验证 6.6.118；安装不限制版本，驱动 ABI 仍须兼容 |
+| 内核与驱动 | 内核 ABI 家族 `6.6.118-android15-8`、页面大小 `4k`；同家族不同构建号均可安装 |
 | 模块环境 | KernelSU 及兼容分支 / Magisk / APatch；内置或外部系统挂载功能可用 |
 | 桥接 | LSPosed（OShare / Mosey 作用域） |
 | 其他 | 已开启 Google 服务，连接 Wi-Fi |

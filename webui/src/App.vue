@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref,computed,watch,onMounted,onBeforeUnmount} from 'vue';
-import {MiuixSnackbarHost,MiuixScrollArea,MiuixIcon,MiuixNavigationBar,MiuixTopAppBar,MiuixIconButton,MiuixButton,MiuixCard,MiuixSmallTitle,MiuixText,MiuixInput,MiuixBasicComponent,MiuixRadioButtonPreference,showSnackbar} from 'miuix-vue';
+import {MiuixSnackbarHost,MiuixScrollArea,MiuixIcon,MiuixNavigationBar,MiuixTopAppBar,MiuixIconButton,MiuixButton,MiuixCard,MiuixSmallTitle,MiuixText,MiuixInput,MiuixBasicComponent,MiuixRadioButtonPreference,MiuixSwitchPreference,showSnackbar} from 'miuix-vue';
 import {ScreenMirroring,Settings} from 'miuix-vue/icons';
 import {API,type Status,type HistoryData,type SpeedRecord,type ShareMode} from './api';
 import {setupImmersiveLayout,setMeasuredInsets} from './immersive';
@@ -24,9 +24,18 @@ const oshareEnabled=computed(()=>state.value?.share_mode_active!=='quickshare');
 const idleTimeoutSummary=computed(()=>{
  if(!state.value)return '读取中';
  const seconds=state.value.idle_timeout??120;
- if(seconds<=0)return '不自动休眠（保持常驻）';
- if(seconds<60)return `${seconds} 秒后释放无线会话`;
- return `${Math.round(seconds/60)} 分钟无操作后释放无线会话`;
+ if(seconds<=0)return '不自动释放（保持常驻）';
+ if(seconds<60)return `分享界面关闭后 ${seconds} 秒释放无线会话`;
+ return `分享界面关闭后 ${Math.round(seconds/60)} 分钟释放无线会话`;
+});
+const keepaliveOn=computed(()=>state.value?.airdrop_keepalive==='on');
+const keepaliveSummary=computed(()=>{
+ if(!state.value)return '读取中';
+ if(keepaliveOn.value)return '保持后台可被 Apple 设备发现，会持续占用功耗';
+ const seconds=state.value.idle_timeout??120;
+ if(seconds<=0)return '关闭后仅在打开分享界面时启用；当前空闲时间为 0，仍会保持常驻';
+ if(seconds<60)return `关闭后仅在打开分享界面时启用，${seconds} 秒无操作后释放`;
+ return `关闭后仅在打开分享界面时启用，${Math.round(seconds/60)} 分钟无操作后释放`;
 });
 const idleTimeoutValid=computed(()=>{
  const value=Number.parseInt(idleDraft.value,10);
@@ -52,6 +61,15 @@ function peak(value:number,average:number){return value<average?'≥ '+speed(ave
 function size(value=0){return value>=1e9?(value/1e9).toFixed(2)+' GB':value>=1e6?(value/1e6).toFixed(2)+' MB':(value/1000).toFixed(1)+' KB';}
 function time(epoch:number){return new Date(epoch*1000).toLocaleString('zh-CN',{hour12:false});}
 function acceptStatus(value:Status){state.value=value;lastStatusAt=Date.now();updated.value=new Date(lastStatusAt).toLocaleTimeString('zh-CN',{hour12:false});setMeasuredInsets(value.inset_top??0,value.inset_bottom??0);}
+// Keep the native status/navigation bar color in step with the app surface so
+// no white strip appears above/below the WebUI. The host tints those bars from
+// the <meta name="theme-color"> tag, so it is mirrored from the active theme.
+function syncThemeColor(){
+ const meta=document.querySelector('meta[name="theme-color"]');
+ if(!meta)return;
+ const dark=document.documentElement.classList.contains('m-theme-dark');
+ meta.setAttribute('content',dark?'#000000':'#f7f7f7');
+}
 function refresh(force=true):Promise<boolean>{
  if(statusRequest)return statusRequest;
  if(busy.value||(!force&&Date.now()-lastStatusAt<2000))return Promise.resolve(false);
@@ -76,20 +94,22 @@ async function manualRefresh(){
  }finally{manualBusy.value=false;}
 }
 let timer:ReturnType<typeof setInterval>|undefined;
+let themeObserver:MutationObserver|undefined;
 watch(tab,next=>{settingsView.value='main';refresh(false);if(next===0)refreshHistory();});
 function poll(){if(document.hidden||manualBusy.value)return;if(tab.value===0)refreshHistory();if(tab.value===0||settingsView.value==='main'||settingsView.value==='sharing')refresh(false);}
-onMounted(()=>{setupImmersiveLayout();poll();document.addEventListener('visibilitychange',poll);timer=setInterval(poll,500);});
+onMounted(()=>{setupImmersiveLayout();syncThemeColor();if(typeof MutationObserver==='function'){themeObserver=new MutationObserver(syncThemeColor);themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class']});}poll();document.addEventListener('visibilitychange',poll);timer=setInterval(poll,500);});
 async function readLogs(){if(logBusy.value)return false;logBusy.value=true;try{logs.value=await API.logs()||'暂无日志';return true;}catch(e){logs.value=e instanceof Error?e.message:String(e);return false;}finally{logBusy.value=false;}}
 async function exportLogs(){if(exportBusy.value)return;exportBusy.value=true;try{exportedPath.value=await API.exportLogs();showSnackbar({message:'日志已保存到 Download/OPAirShare'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{exportBusy.value=false;}}
 function editName(){if(!state.value||busy.value)return;nameDraft.value=state.value.airdrop_name_custom;settingsView.value='name';}
 function editDirectory(){if(!state.value||busy.value)return;directoryDraft.value=state.value.receive_directory;settingsView.value='directory';}
 function editIdleTimeout(){if(!state.value||busy.value)return;idleDraft.value=String(state.value.idle_timeout??120);settingsView.value='idle';}
 async function saveIdleTimeout(){if(busy.value||!state.value||!idleTimeoutValid.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveIdleTimeout(Number.parseInt(idleDraft.value,10)));showSnackbar({message:'空闲时间已保存'});settingsView.value='main';}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
+async function toggleKeepalive(value:boolean){if(busy.value||!state.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveKeepalive(value));showSnackbar({message:value?'已开启一加互传常驻':'已关闭一加互传常驻'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 async function changeShareMode(mode:ShareMode){if(busy.value||!state.value||mode===state.value.share_mode)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveShareMode(mode));showSnackbar({message:state.value!.share_mode===state.value!.share_mode_active?'分享入口已切换':'已保存，正在等待当前任务结束后切换'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 async function saveDirectory(reset=false){if(busy.value||!state.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveDirectory(reset?'':directoryDraft.value));directoryDraft.value=state.value!.receive_directory;showSnackbar({message:reset?'已恢复默认保存位置':'保存位置已更新，下一次保存时生效'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 async function saveName(reset=false){if(busy.value||!state.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveName(reset?'':nameDraft.value));nameDraft.value=state.value!.airdrop_name_custom;showSnackbar({message:reset?'已恢复默认名称':'名称已保存'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 function openLogs(){settingsView.value='logs';readLogs();}
-onBeforeUnmount(()=>{if(timer)clearInterval(timer);document.removeEventListener('visibilitychange',poll);});
+onBeforeUnmount(()=>{if(timer)clearInterval(timer);if(themeObserver)themeObserver.disconnect();document.removeEventListener('visibilitychange',poll);});
 </script>
 <template>
 <div class="app">
@@ -124,6 +144,7 @@ onBeforeUnmount(()=>{if(timer)clearInterval(timer);document.removeEventListener(
    <MiuixSmallTitle text="文件接收"/>
    <MiuixCard><MiuixBasicComponent title="保存位置" :summary="oshareEnabled?(state?(state.receive_directory||'按文件类型保存到默认目录'):'读取中'):'由 Quick Share 管理接收文件'" :disabled="busy||!state||!oshareEnabled" clickable @click="editDirectory"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent></MiuixCard>
    <MiuixSmallTitle text="功耗"/>
+   <MiuixCard><MiuixSwitchPreference title="一加互传 常驻" :summary="keepaliveSummary" :model-value="keepaliveOn" :disabled="busy||!state" @change="toggleKeepalive"/></MiuixCard>
    <MiuixCard><MiuixBasicComponent title="空闲后释放无线会话" :summary="idleTimeoutSummary" :disabled="busy||!state" clickable @click="editIdleTimeout"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent></MiuixCard>
    <MiuixSmallTitle text="通用"/>
     <MiuixCard><MiuixBasicComponent title="关于" clickable @click="settingsView='about'"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent><MiuixBasicComponent title="查看日志" clickable @click="openLogs"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent><MiuixBasicComponent title="导出日志" :summary="exportBusy?'正在导出…':undefined" :disabled="exportBusy" clickable @click="exportLogs"><template #end><span class="entry-arrow">↗</span></template></MiuixBasicComponent></MiuixCard>

@@ -210,10 +210,10 @@ OShare 桥接还需要对应宿主 provider 的类型、方法、回调和设备
 | 位置 | 需要对应目标设备的内容 |
 | --- | --- |
 | `module/customize.sh` | 调用兼容性检测、模块环境、文件权限 |
-| `module/bin/compatibility.sh` | Oplus 品牌、sun 平台、6.6.118 内核基础版本三项设备准入条件 |
+| `module/bin/compatibility.sh` | Oplus 品牌、sun 平台、内核 ABI 家族与页面大小三项设备准入条件 |
 | `module/bin/control.sh` | 加载顺序、模块名、`/proc/modules` 条件、HAL 服务和恢复路径 |
 | `module/bin/common.sh` | 模块参数、服务名与状态检查 |
-| `module/bin/kernel-identity.sh` | 本次构建与原厂恢复模块的构建标识 |
+| `module/bin/kernel-identity.sh` | 本次构建的 `NOTE_*` 与内核 ABI 家族 / 页面大小；不含任何设备的原厂 build id |
 | `module/bin/callback.sh` | 系统与活动 Mosey APK 的路径和挂载方式 |
 | `module/system/` | 权限文件、VINTF 与系统目录布局 |
 | `tools/build-native.py` | ABI、NDK 与目标 Android API |

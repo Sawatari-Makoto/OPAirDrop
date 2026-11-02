@@ -42,14 +42,20 @@ fi
 # module on those devices. We now:
 #   * never permanently disable when root was never available (defer instead),
 #     so a later boot (or a manual start after escalation) can still bring it up;
-#   * retry a handful of times when root IS available, to absorb the
-#     PackageManager scan race for the privileged Mosey app;
-#   * only disable after root is present AND start keeps failing (genuine fatal);
+#   * keep waiting for root for a long window (a temporary-root grant usually
+#     needs a manual approval, which can happen minutes after the boot);
+#   * retry when root IS available, to absorb the PackageManager scan race for
+#     the privileged Mosey app and any boot-time lock contention;
+#   * only latch the module off when the failure is genuinely fatal (the
+#     patched drivers were rolled back), never on a recoverable failure that
+#     kept the patched stack in place;
 #   * clear a stale `disabled` automatically if a later boot with root succeeds.
 # ---------------------------------------------------------------------------
 root_seen=0
 attempt=0
-max_attempts=18
+max_attempts=${OPAIRSHARE_BOOT_MAX_ATTEMPTS:-40}
+retry_sleep=${OPAIRSHARE_BOOT_RETRY_SLEEP:-15}
+fatal_attempts=0
 while [ "$attempt" -lt "$max_attempts" ]; do
     attempt=$((attempt+1))
     if [ "$(id -u)" != "0" ]; then
@@ -57,22 +63,45 @@ while [ "$attempt" -lt "$max_attempts" ]; do
         # armed and wait; do NOT disable. If the user escalates within this
         # window, the next iteration will pick it up and start automatically.
         echo "Root not available yet (attempt $attempt/$max_attempts); deferring start" > "$STATE/boot-start.log"
-        sleep 15
+        sleep "$retry_sleep"
         continue
     fi
     root_seen=1
-    if /system/bin/sh "$MODDIR/bin/control.sh" start > "$STATE/boot-start.log" 2>&1; then
+    start_rc=0
+    /system/bin/sh "$MODDIR/bin/control.sh" start > "$STATE/boot-start.log" 2>&1 || start_rc=$?
+    if [ "$start_rc" = 0 ]; then
         rm -f "$STATE/disabled"
         log -t opairshare-quickshare 'r24 resident driver, transfer callbacks and UI lifecycle ready'
         exit 0
     fi
-    # Root present but start failed. Could be the PackageManager scan race for
-    # the privileged Mosey app; retry a few times before giving up.
-    [ "$attempt" -ge 4 ] && break
-    sleep 8
+    # A recoverable failure kept the patched stack in place: the retry only
+    # has to restart the native server and the provider, so it is cheap and
+    # must not be treated as fatal.
+    if grep -q 'RECOVERABLE_START_FAILURE' "$STATE/boot-start.log" 2>/dev/null; then
+        fatal_attempts=0
+        echo "Recoverable start failure (rc=$start_rc) on attempt $attempt; retrying" >> "$STATE/boot-start.log"
+        sleep "$retry_sleep"
+        continue
+    fi
+    # The provider was not registered yet (early cold boot). Nothing was
+    # swapped and nothing was rolled back, so the start is simply retried.
+    if [ "$start_rc" = 12 ]; then
+        fatal_attempts=0
+        echo "Provider not ready (rc=12) on attempt $attempt; retrying" >> "$STATE/boot-start.log"
+        sleep "$retry_sleep"
+        continue
+    fi
+    # Fatal: the drivers were rolled back to the factory build. Retry a couple
+    # of times (the boot race can be transient) and only then latch the module
+    # off.
+    fatal_attempts=$((fatal_attempts+1))
+    echo "Start failed rc=$start_rc (fatal $fatal_attempts) on attempt $attempt" >> "$STATE/boot-start.log"
+    [ "$fatal_attempts" -ge 3 ] && break
+    sleep "$retry_sleep"
 done
-if [ "$root_seen" = "1" ]; then
+if [ "$root_seen" = "1" ] && [ "$fatal_attempts" -ge 3 ]; then
     touch "$STATE/disabled"
-    log -t opairshare-quickshare 'r24 startup failed; no automatic retry'
+    log -t opairshare-quickshare 'r24 startup failed fatally; no automatic retry'
+    exit 3
 fi
-exit 3
+exit 0

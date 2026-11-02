@@ -17,16 +17,18 @@
 
 | 项目 | 当前配置 |
 | --- | --- |
-| 设备范围 | Oplus（OPPO / OnePlus / realme）`sun` 平台；已验证机型 PJZ110 |
+| 设备范围 | Oplus（OPPO / OnePlus / realme）`sun` 平台（骁龙 8 Elite 平台）；不限制机型，已验证机型 PJZ110 |
 | Android SDK | 已验证 37，不作为安装限制 |
-| 内核 | 已验证 `6.6.118`；安装不限制版本，驱动 ABI 仍须兼容 |
+| 内核 | 要求内核 ABI 家族 `6.6.118-android15-8`、页面大小 `4k`；同家族的不同构建号均可安装 |
 | WLAN 平台 | Qualcomm `sun` / `peach-v2` |
 | AWDL | 信道 149，5745 MHz，20 MHz 带宽 |
 | 共存 STA 频段 | 2.4 / 5 / 6 GHz，按连接条件选择策略 |
 | 模块环境 | KernelSU 及兼容分支 / Magisk / APatch；需可用的系统挂载功能 |
 | OShare 桥接 | LSPosed，作用域为 OShare 与 Mosey |
 
-安装和启动共用 `module/bin/compatibility.sh`，设备准入检查 Oplus 品牌、`ro.board.platform=sun`。不限制型号、SoC 属性、SDK、内核版本或原厂驱动构建身份。安装仍检查 Root 权限和包完整性；元模块名称与 `/data/adb/metamodule` 是否存在不作为准入条件。
+安装和启动共用 `module/bin/compatibility.sh`，设备准入检查 Oplus 品牌、`ro.board.platform=sun`，以及内核 ABI 家族与页面大小是否与随包内核模块的 vermagic 一致。不限制型号、SoC 属性、SDK 或原厂驱动构建身份。安装仍检查 Root 权限和包完整性；元模块名称与 `/data/adb/metamodule` 是否存在不作为准入条件。
+
+原厂驱动的真实 build id 不写死在发行包里。安装时和每次开机换入驱动之前，模块都会在设备自身读取 `qca_cld3_peach_v2` 与 `mac80211` 当前加载模块的 build id，记入 `/data/adb/opairshare/kernel-identity.sh`（权限 600），并跳过本模块自己安装的构建。恢复原厂驱动时按设备自己记录的这一个 build id 校验恢复结果，因此同一个发行包可以在不同设备上安装并正确回滚。
 
 模块自身已加载的修改版驱动与 provider / Wonder 继续校验身份，用于识别本模块拥有的运行状态。原厂驱动不再按 PJZ110 的构建身份或模块大小拦截，改为运行时探测驱动实际暴露的 AWDL 与共存能力参数；缺失哪一项会在 `control.sh status` 的 `driver_gap` 中报出。通过检测不代表所有固件、OShare / Mosey 版本或实际收发已验证。
 

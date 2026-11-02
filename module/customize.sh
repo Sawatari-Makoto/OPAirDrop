@@ -3,11 +3,33 @@ ui_print "- OPAirDrop v$(sed -n 's/^version=//p' "$MODPATH/module.prop")：为 O
 [ "$(id -u)" = 0 ] || abort 'Root required'
 verify_output=$(sh "$MODPATH/bin/verify.sh" "$MODPATH" 2>&1) || abort "Payload integrity check failed: ${verify_output:-no output}"
 . "$MODPATH/bin/root-runtime.sh"
+# The runtime library carries the identity helpers and the kernel gate. The
+# installer sources this script, so the library is loaded by its module path
+# instead of by the path of this script.
+[ -f "$MODPATH/bin/common.sh" ] || abort 'Runtime library missing: bin/common.sh'
+. "$MODPATH/bin/common.sh" || abort 'Failed to load the runtime library'
 ui_print "- Root 环境：$(root_manager)；支持管理器内置挂载或外部挂载模块"
 ui_print '- 不按元模块名称或目录拦截；重启后检查系统文件的实际挂载结果'
 . "$MODPATH/bin/compatibility.sh"
 compat_result=$(compatibility_device 2>&1) || abort "Compatibility check failed: $compat_result"
 ui_print "- 兼容性检测通过：$(getprop ro.product.model) / Oplus / sun / $(uname -r)"
+ui_print "- 内核 ABI 家族：${KERNEL_ABI_FAMILY:-未知}（页面大小 ${KERNEL_ABI_PAGESIZE:-未知}）"
+# Record the original driver build ids of this device. They are read back at
+# runtime, so the package itself carries no device specific identity and the
+# same release works on every supported device.
+stock_captured=0
+capture_stock_identity >/dev/null 2>&1 && stock_captured=1
+if [ "$stock_captured" = 1 ]; then
+    stock_wlan=$(stock_note qca_cld3_peach_v2)
+    stock_mac=$(stock_note mac80211)
+    if [ -n "$stock_wlan" ]; then
+        ui_print "- 已记录本机原厂 WLAN 驱动构建标识：${stock_wlan}"
+    fi
+    if [ -n "$stock_mac" ]; then
+        ui_print "- 已记录本机原厂 mac80211 构建标识：${stock_mac}"
+    fi
+fi
+[ "$stock_captured" = 1 ] || ui_print '- 未能读取本机原厂驱动构建标识；恢复原厂驱动时由内核自身校验'
 # Replacement must not merge obsolete split APKs from the earlier module.
 REPLACE="/system/system_ext/priv-app/MoseyApp"
 root_write_policy "$MODPATH" || abort 'Root SELinux policy configuration failed'

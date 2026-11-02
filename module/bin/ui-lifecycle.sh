@@ -68,14 +68,18 @@ close_session() {
     idle_release=0
     if [ "${1:-normal}" != recover ];then
         [ "$(foreground_state)" = closed ] || return 10
-        # Background reception normally keeps the session open, so the
-        # session is only released when the idle policy says the user has
-        # stopped asking for transfers. In that case the app is suspended
-        # rather than disabled, so Quick Share can still be opened by hand.
-        if [ "$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)" = 1 ];then
-            [ "$(idle_may_sleep)" = 0 ] || return 10
-            idle_release=1
+        keepalive_state=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" keepalive 8>&-)
+        if [ "$keepalive_state" = on ];then
+            # Resident mode: the wireless session stays armed even though the
+            # share surface is gone, so AirDrop discovery keeps working and
+            # the radio is not paid for twice.
+            return 10
         fi
+        # On-demand mode: the radio is released once the share surface is
+        # gone, but the host application is only suspended rather than
+        # disabled, so Quick Share can still be opened by hand and the next
+        # share surface brings the session straight back.
+        idle_release=1
     fi
     if [ "$idle_release" = 1 ];then
         /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" suspend 8>&- || return 6
@@ -201,6 +205,7 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
             ;;
     esac
     receive_requested=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)
+    keepalive_on=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" keepalive 8>&-)
     receive_eligible=0
     receive_samples=$((receive_samples+1))
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
@@ -219,7 +224,7 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     # still expected to use it. After the idle period the radio is released so
     # the device stops paying for an armed AWDL session all day; the next
     # share surface brings it straight back.
-    if [ "$receive_eligible" = 1 ] && [ "$foreground" != open ];then
+    if [ "$receive_eligible" = 1 ] && [ "$foreground" != open ] && [ "$keepalive_on" != on ];then
         # The transfer state is only inspected once the idle period has
         # actually passed, so the supervisor does not run a service dump on
         # every sample.
@@ -245,7 +250,13 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     if [ "$foreground" = unknown ] && [ "$receive_eligible" != 1 ];then
         off_samples=0;echo 'Cannot read foreground UI; retain current session';sleep 2;continue
     fi
-    if [ "$foreground" = open ] || [ "$receive_eligible" = 1 ]; then
+    # Arm the session when the share surface is open, or when background
+    # reception is wanted AND the idle policy still allows it. The idle gate is
+    # what stops a wanted (keep-alive) session from being re-armed the instant
+    # it releases: once idle has elapsed the session stays down until the next
+    # activity (share surface opened or a transfer starts), so idle-sleep is
+    # real instead of a no-op.
+    if [ "$foreground" = open ] || { [ "$receive_eligible" = 1 ] && { [ "$(idle_may_sleep)" = 1 ] || [ "$keepalive_on" = on ]; }; }; then
         off_samples=0
         if [ ! -e "$STATE/ui-session" ]; then
             # Requested coexistence never mutates association/autojoin. When
@@ -303,7 +314,11 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
                 provider_samples=0
             fi
         fi
-        if [ "$receive_eligible" = 1 ] && [ "$provider_ready" = 1 ] && [ "$receive_samples" -ge 10 ];then
+        # Open admission when the share surface is open (regardless of the
+        # keep-alive toggle) or when background reception is wanted. Without the
+        # foreground clause the session would prepare on open but never
+        # advertise because keep-alive is off by default.
+        if { [ "$foreground" = open ] || [ "$receive_eligible" = 1 ]; } && [ "$provider_ready" = 1 ] && [ "$receive_samples" -ge 10 ];then
             if /system/bin/sh "$MODDIR/bin/receive-session.sh" ensure-ui 8>&-;then
                 [ "$receive_published" = 1 ] || startup_trace RECEIVE_HOST_READY
                 # Recheck module/coexistence ownership before opening admission.
@@ -318,7 +333,17 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
             receive_samples=0
         fi
     else
-        off_samples=$((off_samples+1))
+        # The share surface is gone and background reception is not wanted.
+        # The session is kept warm for the idle window so that a quick re-open
+        # of the share panel does not tear the AWDL session down and build it
+        # up again; once the window has passed the session is released and the
+        # radio returns to power saving. An idle timeout of 0 keeps the
+        # session resident, matching the documented "0 = always on" behaviour.
+        if [ "$(idle_may_sleep)" = 1 ];then
+            off_samples=0
+        else
+            off_samples=$((off_samples+1))
+        fi
         if [ "$off_samples" -ge 3 ] && [ -e "$STATE/ui-session" ]; then
             if close_session; then provider_failures=0;provider_ready=0;receive_published=0
             else

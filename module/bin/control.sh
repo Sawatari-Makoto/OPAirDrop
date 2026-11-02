@@ -13,10 +13,56 @@ preflight() {
     [ "$(id -u)" = 0 ] || return 2
     compatibility_device
 }
+# Android's toybox flock only understands `[-sxun] fd` - it has neither `-c`
+# nor `-w`, so a blocking lock is impossible. Waiting is implemented as a
+# bounded poll on the non-blocking form: a boot-time overlap (the auto-start
+# racing a manual start, or two supervisors) must queue behind the running
+# operation instead of failing the whole stack and rolling the drivers back
+# to the factory build.
+STACK_LOCK_WAIT_TRIES=${STACK_LOCK_WAIT_TRIES:-60}
+STACK_LOCK_WAIT_STEP=${STACK_LOCK_WAIT_STEP:-2}
 lock_stack() {
     exec 9> "$STATE/stack.flock"
-    flock -n 9 9>&9 || { echo 'Another stack operation is running'; return 9; }
-    trap 'exec 9>&-' EXIT
+    tries=0
+    while [ "$tries" -lt "$STACK_LOCK_WAIT_TRIES" ]; do
+        if flock -n 9 9>&9; then
+            trap 'exec 9>&-' EXIT
+            return 0
+        fi
+        tries=$((tries+1))
+        [ "$tries" -lt "$STACK_LOCK_WAIT_TRIES" ] && sleep "$STACK_LOCK_WAIT_STEP"
+    done
+    echo 'Another stack operation is running'
+    return 9
+}
+# Failure handling for a `start` run.
+#
+# `swap_done` tells the handler whether the kernel stack was already replaced
+# by the patched drivers:
+#   * Before the swap finished, the device is in a half-swapped state and the
+#     only safe way out is the full factory restore.
+#   * After the swap finished, the drivers are valid and the failure is in the
+#     native/provider/supervisor layer. Rolling the whole stack back to the
+#     factory build there destroys a perfectly good AWDL stack and latches the
+#     module off for the rest of the boot. Instead the stack is kept and the
+#     caller is told to retry; the retry re-enters the `same_boot stack-boot`
+#     branch, which only restarts the native server and the provider.
+#
+# The handler is a top-level function so the behaviour is covered by the
+# regression suite instead of only being reachable through the CLI.
+start_failure_handler() {
+    rc=$1
+    if [ "${swap_done:-0}" = 1 ]; then
+        resume_wifi_hal || true
+        rm -f "$STATE/disabled" "$STATE/startup-incomplete"
+        echo "RECOVERABLE_START_FAILURE rc=$rc; patched stack retained for retry"
+        return "$rc"
+    fi
+    boot_id > "$STATE/restoring"
+    restore_owned || true
+    resume_wifi_hal || true
+    touch "$STATE/disabled"
+    return "$rc"
 }
 start_supervisor() {
     owner=$(cat "$STATE/supervisor.pid" 2>/dev/null || true)
@@ -25,8 +71,13 @@ start_supervisor() {
         /system/bin/sh "$MODDIR/bin/ui-lifecycle.sh" >> "$STATE/supervisor.log" 2>&1 < /dev/null 9>&- &
         owner=$!
         echo "$owner" > "$STATE/supervisor.pid"
+        # The supervisor clears the receive session and starts the speed
+        # history helper before it publishes `supervisor-ready`, and both talk
+        # to the framework on a cold boot. A short window made the boot-time
+        # start fail on a busy device, so the window is generous; the retry
+        # loop in service.sh covers the rest.
         n=0
-        while [ "$n" -lt 8 ];do
+        while [ "$n" -lt 30 ];do
             if [ "$(cat "$STATE/supervisor-ready" 2>/dev/null || true)" = "$(boot_id) $owner" ] &&
                pid_is "$owner" 'ui-lifecycle.sh';then return 0;fi
             pid_live "$owner" || return 6
@@ -90,7 +141,16 @@ retire_old_ui_state() {
 }
 passive_ui_baseline() {
     /system/bin/sh "$MODDIR/bin/receive-session.sh" clear || return 8
-    /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 2>/dev/null || true || return 9
+    # `|| true || return 9` used to swallow the failure code entirely: the
+    # `true` short-circuits the chain, so the intended bail-out never ran.
+    # Capture the code explicitly and keep the two failure kinds apart.
+    transfer_rc=0
+    /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 2>/dev/null || transfer_rc=$?
+    case "$transfer_rc" in
+        0) ;;
+        12) echo 'Provider state not ready; start is retryable'; return 12 ;;
+        *) return 9 ;;
+    esac
     /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release || return 6
     [ -z "$(pidof "$PKG" || true)" ] || return 6
     reply=$(framework timeout 15 service call "$SERVICE" 2 i32 1 i32 4) || return 6
@@ -160,6 +220,12 @@ restore_owned() {
         if loaded opairshare_wonder_provider; then rmmod opairshare_wonder_provider || return 12; fi
         if ! loaded qca_cld3_peach_v2; then insmod /vendor/lib/modules/qca_cld3_peach_v2.ko || return 13; fi
         loaded qca_cld3_peach_v2 || return 13
+        # The restored driver has to be the build this device ships, not the
+        # one of the machine the package was built on.
+        stock_wlan=$(stock_note qca_cld3_peach_v2)
+        if [ -n "$stock_wlan" ] && [ "$(module_note qca_cld3_peach_v2)" != "$stock_wlan" ]; then
+            echo 'Restored WLAN driver is not the original build of this device'; return 13
+        fi
         rm -f "$STATE/qca-swapped" "$STATE/provider-added"
     elif same_boot "$STATE/provider-added"; then
         if loaded opairshare_wonder_provider; then rmmod opairshare_wonder_provider || return 12; fi
@@ -169,6 +235,10 @@ restore_owned() {
         if loaded mac80211 && [ "$(module_note mac80211)" = "$NOTE_mac80211" ]; then rmmod mac80211 || return 14; fi
         if ! loaded mac80211; then insmod /vendor/lib/modules/mac80211.ko || return 15; fi
         loaded mac80211 || return 15
+        stock_mac=$(stock_note mac80211)
+        if [ -n "$stock_mac" ] && [ "$(module_note mac80211)" != "$stock_mac" ]; then
+            echo 'Restored mac80211 is not the original build of this device'; return 15
+        fi
         rm -f "$STATE/mac-swapped"
     fi
     resume_wifi_hal || return 4
@@ -216,11 +286,17 @@ ready_message() { echo AIRDROP_RESIDENT_READY_UI_GATED; }
 case "${1:-status}" in
     status)
         echo "model=$(getprop ro.product.model) sdk=$(getprop ro.build.version.sdk) kernel=$(uname -r)"
+        echo "kernel_abi_family=${KERNEL_ABI_FAMILY:-unknown} page_size=${KERNEL_ABI_PAGESIZE:-unknown}"
+        # The build ids this device ships, read on the device itself.
+        echo "stock_wlan_note=$(stock_note qca_cld3_peach_v2)"
+        echo "stock_mac80211_note=$(stock_note mac80211)"
         if same_boot "$STATE/stack-boot" && kernel_matches; then echo stack=stage44_coexist_owned
         else
             echo stack=not_owned
             # Report why the stack cannot be used, so a device on a different
             # firmware can be diagnosed without attaching a debugger.
+            kernel_reason=$(kernel_family_gap)
+            [ -n "$kernel_reason" ] && echo "kernel_gap=$kernel_reason"
             capability_reason=$(driver_capability_gap)
             [ -n "$capability_reason" ] && echo "driver_gap=$capability_reason"
         fi
@@ -247,19 +323,56 @@ case "${1:-status}" in
         ;;
     start)
         preflight; lock_stack
+        # Record the original build ids of this device while its own drivers
+        # are still the loaded ones. They are the reference the restore path
+        # compares against, so a package never carries a foreign identity.
+        capture_stock_identity || true
         # The payload has to be visible in the system view before the driver
         # swap starts. A module that was replaced while the system was running
         # is only mounted after the next reboot, so abort here instead of
         # failing halfway through the stack and leaving a stale marker behind.
         /system/bin/sh "$MODDIR/bin/mount-check.sh" "$MODDIR" || exit 3
-        /system/bin/sh "$MODDIR/bin/transfer-idle.sh"
+        # The provider is not registered yet during the early phase of a cold
+        # boot. That is a transient condition, not a rejection: the stack is
+        # still untouched here, so the start is simply retried later instead
+        # of being treated as a fatal failure.
+        transfer_rc=0
+        /system/bin/sh "$MODDIR/bin/transfer-idle.sh" || transfer_rc=$?
+        if [ "$transfer_rc" != 0 ];then
+            if [ "$transfer_rc" = 12 ];then
+                echo "RECOVERABLE_START_FAILURE rc=12; provider not ready, retrying later"
+                exit 12
+            fi
+            exit "$transfer_rc"
+        fi
         /system/bin/sh "$MODDIR/bin/grant-permissions.sh" 2>/dev/null || true
         rm -f "$STATE/disabled"
+        # `swap_done` tells the failure path whether the kernel stack was
+        # already replaced by the patched drivers; see start_failure_handler.
+        swap_done=0
+        fail_cleanup() {
+            rc=$?
+            trap - EXIT INT TERM
+            start_failure_handler "$rc" || true
+            exec 9>&-
+            exit "$rc"
+        }
         if same_boot "$STATE/stack-boot"; then
+            # Retry path: the patched drivers are already live, so any failure
+            # from here on is recoverable and must never roll the stack back.
             kernel_matches || exit 3
+            swap_done=1
+            trap fail_cleanup EXIT
+            trap 'exit 130' INT
+            trap 'exit 143' TERM
             server=$(cat "$STATE/server.pid" 2>/dev/null || true)
             if ! pid_is "$server" '/system_ext/bin/mosey_server'; then start_native; fi
-            activate_provider; ready_message; exit 0
+            activate_provider
+            # Drop the failure trap before leaving: a successful retry must
+            # not run the failure handler on the way out.
+            trap 'exec 9>&-' EXIT
+            trap - INT TERM
+            ready_message; exit 0
         fi
         for m in wonder opairshare_wonder_provider opairshare_hw_probe; do
             if loaded "$m"; then echo "Unexpected live module $m"; exit 3; fi
@@ -270,7 +383,6 @@ case "${1:-status}" in
         printf '%s\n' "$wifi_before" > "$STATE/wifi-before"
         boot_id > "$STATE/stack-boot"
         touch "$STATE/startup-incomplete"
-        fail_cleanup() { rc=$?; trap - EXIT INT TERM; boot_id > "$STATE/restoring"; restore_owned || true; resume_wifi_hal || true; touch "$STATE/disabled"; exec 9>&-; exit "$rc"; }
         trap fail_cleanup EXIT
         trap 'exit 130' INT
         trap 'exit 143' TERM
@@ -301,6 +413,9 @@ case "${1:-status}" in
         insmod "$MODDIR/payload/kernel/wonder.ko" physical_name=wondertap0 virtual_name=wonder0
         kernel_matches || exit 3
         startup_trace DRIVER_SWAP_DONE
+        # The patched drivers are live from here on: a later failure must not
+        # roll the WLAN stack back to the factory build.
+        swap_done=1
         # Finish loading the entire stack before allowing framework association.
         resume_wifi_hal
         wifi_restore "$(cat "$STATE/wifi-before")"
@@ -313,7 +428,13 @@ case "${1:-status}" in
         ;;
     stop)
         lock_stack
-        /system/bin/sh "$MODDIR/bin/transfer-idle.sh"
+        # A provider that is not ready must not block the stop: there can be
+        # no transfer running without a provider process.
+        transfer_rc=0
+        /system/bin/sh "$MODDIR/bin/transfer-idle.sh" || transfer_rc=$?
+        if [ "$transfer_rc" != 0 ] && [ "$transfer_rc" != 12 ];then
+            exit "$transfer_rc"
+        fi
         touch "$STATE/disabled"
         stop_supervisor
         if ! same_boot "$STATE/stack-boot"; then echo 'No stack owned during this boot; driver unchanged'; exit 0; fi

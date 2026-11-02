@@ -1,11 +1,40 @@
 #!/system/bin/sh
-# Shared install/start device gates: Oplus brand, sun platform, and a WLAN
-# driver that exposes the AWDL and coexistence knobs the module drives.
+# Shared install/start device gates: Oplus brand, sun platform, a kernel of
+# the ABI family the payload was compiled for, and a WLAN driver that exposes
+# the AWDL and coexistence knobs the module drives.
 #
 # The driver check reports what is missing instead of only refusing to
 # continue, so a device on a different firmware can be diagnosed from the
 # install log.
 compatibility_error() { echo "Compatibility: $*" >&2; return 2; }
+
+# The identity helpers live in the shared runtime library next to this file.
+_compat_dir=$(CDPATH= cd -- "${0%/*}" 2>/dev/null && pwd) || _compat_dir=
+if [ -n "$_compat_dir" ] && [ -f "$_compat_dir/common.sh" ]; then
+    . "$_compat_dir/common.sh"
+elif [ -n "$_compat_dir" ] && [ -f "$_compat_dir/bin/common.sh" ]; then
+    . "$_compat_dir/bin/common.sh"
+elif [ -n "${MODPATH:-}" ] && [ -f "$MODPATH/bin/common.sh" ]; then
+    # The installer sources this file, so $0 is not the script path.
+    . "$MODPATH/bin/common.sh"
+fi
+
+# The kernel gate. The shipped drivers carry a vermagic, so they only load on
+# a kernel of the family they were compiled for. The device release string
+# carries a build id of its own, so the family is matched as a prefix.
+compatibility_kernel() {
+    if ! command -v kernel_family_gap >/dev/null 2>&1; then
+        # The gate must never be skipped silently.
+        compatibility_error 'the runtime library did not load, the kernel gate cannot run'
+        return 2
+    fi
+    gap=$(kernel_family_gap)
+    if [ -n "$gap" ]; then
+        compatibility_error "$gap"
+        return 2
+    fi
+    return 0
+}
 
 compatibility_device() (
     brands=$(getprop ro.product.manufacturer; getprop ro.product.brand; getprop ro.product.vendor.manufacturer; getprop ro.product.vendor.brand)
@@ -16,6 +45,7 @@ compatibility_device() (
     [ "$board" = sun ] || {
         compatibility_error "sun platform required; found $board"; exit 2;
     }
+    compatibility_kernel || exit 2
 )
 
 # Knobs the AWDL path depends on. A driver that misses any of them cannot
