@@ -3,7 +3,7 @@ import {ref,computed,watch,onMounted,onBeforeUnmount} from 'vue';
 import {MiuixSnackbarHost,MiuixScrollArea,MiuixIcon,MiuixNavigationBar,MiuixTopAppBar,MiuixIconButton,MiuixButton,MiuixCard,MiuixSmallTitle,MiuixText,MiuixInput,MiuixBasicComponent,MiuixRadioButtonPreference,MiuixSwitchPreference,showSnackbar} from 'miuix-vue';
 import {ScreenMirroring,Settings} from 'miuix-vue/icons';
 import {API,type Status,type HistoryData,type SpeedRecord,type ShareMode} from './api';
-import {setupImmersiveLayout,setMeasuredInsets} from './immersive';
+import {setupImmersiveLayout,setMeasuredInsets,syncThemeColor} from './immersive';
 import AboutView from './components/AboutView.vue';
 import LicensesView from './components/LicensesView.vue';
 const tab=ref(0),state=ref<Status|null>(null),busy=ref(false),error=ref(''),updated=ref('');
@@ -64,12 +64,10 @@ function acceptStatus(value:Status){state.value=value;lastStatusAt=Date.now();up
 // Keep the native status/navigation bar color in step with the app surface so
 // no white strip appears above/below the WebUI. The host tints those bars from
 // the <meta name="theme-color"> tag, so it is mirrored from the active theme.
-function syncThemeColor(){
- const meta=document.querySelector('meta[name="theme-color"]');
- if(!meta)return;
- const dark=document.documentElement.classList.contains('m-theme-dark');
- meta.setAttribute('content',dark?'#000000':'#f7f7f7');
-}
+// The shared helper resolves the real surface color of the current palette
+// instead of a hard-coded approximation, which is what left the status bar
+// and the gesture area in a slightly different shade than the page.
+function applyThemeColor(){syncThemeColor();}
 function refresh(force=true):Promise<boolean>{
  if(statusRequest)return statusRequest;
  if(busy.value||(!force&&Date.now()-lastStatusAt<2000))return Promise.resolve(false);
@@ -95,9 +93,18 @@ async function manualRefresh(){
 }
 let timer:ReturnType<typeof setInterval>|undefined;
 let themeObserver:MutationObserver|undefined;
+const scrollArea=ref<{getScrollTop:()=>number;setScrollTop:(top:number)=>void}|null>(null);
+// Every page swap starts at the top of the new page. Without this the
+// scroll offset of the previous page was kept, so the new page opened
+// half-way down and the transition looked like a jump cut.
+watch([tab,settingsView],()=>{
+ const area=scrollArea.value;
+ if(!area)return;
+ requestAnimationFrame(()=>area.setScrollTop(0));
+});
 watch(tab,next=>{settingsView.value='main';refresh(false);if(next===0)refreshHistory();});
 function poll(){if(document.hidden||manualBusy.value)return;if(tab.value===0)refreshHistory();if(tab.value===0||settingsView.value==='main'||settingsView.value==='sharing')refresh(false);}
-onMounted(()=>{setupImmersiveLayout();syncThemeColor();if(typeof MutationObserver==='function'){themeObserver=new MutationObserver(syncThemeColor);themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class']});}poll();document.addEventListener('visibilitychange',poll);timer=setInterval(poll,500);});
+onMounted(()=>{setupImmersiveLayout();applyThemeColor();if(typeof MutationObserver==='function'){themeObserver=new MutationObserver(applyThemeColor);themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['class']});}poll();document.addEventListener('visibilitychange',poll);timer=setInterval(poll,500);});
 async function readLogs(){if(logBusy.value)return false;logBusy.value=true;try{logs.value=await API.logs()||'暂无日志';return true;}catch(e){logs.value=e instanceof Error?e.message:String(e);return false;}finally{logBusy.value=false;}}
 async function exportLogs(){if(exportBusy.value)return;exportBusy.value=true;try{exportedPath.value=await API.exportLogs();showSnackbar({message:'日志已保存到 Download/OPAirShare'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{exportBusy.value=false;}}
 function editName(){if(!state.value||busy.value)return;nameDraft.value=state.value.airdrop_name_custom;settingsView.value='name';}
@@ -113,9 +120,10 @@ onBeforeUnmount(()=>{if(timer)clearInterval(timer);if(themeObserver)themeObserve
 </script>
 <template>
 <div class="app">
- <MiuixScrollArea class="app-body">
+ <MiuixScrollArea class="app-body" ref="scrollArea">
   <MiuixTopAppBar :large="true" :title="pageTitle"><template #navigation><MiuixIconButton v-if="tab===1&&settingsView!=='main'" :aria-label="settingsView==='licenses'?'返回关于':'返回设置'" @click="settingsView=settingsView==='licenses'?'about':'main'"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m15 5-7 7 7 7"/></svg></MiuixIconButton></template><template #actions><MiuixIconButton v-if="settingsView!=='about'&&settingsView!=='licenses'" aria-label="刷新" :aria-busy="manualBusy" :disabled="busy||manualBusy" @click="manualRefresh"><svg :class="{'refresh-spinning':manualBusy}" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9a7.5 7.5 0 1 0 .4 5M19 4v5h-5"/></svg></MiuixIconButton></template></MiuixTopAppBar>
   <div v-if="error" class="banner error" role="alert">{{error}}</div>
+  <Transition name="page" mode="out-in">
   <div :key="`${tab}-${settingsView}`" class="page">
    <template v-if="tab===0">
     <MiuixSmallTitle text="服务状态"/>
@@ -194,6 +202,7 @@ onBeforeUnmount(()=>{if(timer)clearInterval(timer);if(themeObserver)themeObserve
     <div v-if="exportedPath" class="export-result"><b>日志已导出</b><p>{{exportedPath}}</p></div>
    </template>
   </div>
+  </Transition>
  </MiuixScrollArea>
  <div v-if="settingsView!=='about'&&settingsView!=='licenses'" class="bottom"><MiuixNavigationBar v-model="tab" :items="navItems"><template #icon="{index}"><MiuixIcon :icon="icons[index]" :size="26"/></template></MiuixNavigationBar></div>
 </div>

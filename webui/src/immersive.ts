@@ -21,6 +21,17 @@
 let measured = { top: 0, bottom: 0 };
 
 /**
+ * The last values written to the document element.
+ *
+ * The status poll runs every 500 ms and reports the same insets over and
+ * over. Writing the custom properties again on every poll made the browser
+ * re-resolve the whole style tree, which restarted the running CSS
+ * transitions and produced the stuttering navigation bar and cut-off
+ * page animations. The values are therefore only written when they change.
+ */
+let applied = { top: -1, bottom: -1 };
+
+/**
  * Record the insets reported by the module backend.
  *
  * The measurement is authoritative because it comes from the window manager
@@ -59,9 +70,52 @@ function applyInsets(): void {
   const top = measured.top || hostInset('--window-inset-top') || safeAreaInset('top');
   const bottom = measured.bottom || hostInset('--window-inset-bottom') || safeAreaInset('bottom');
 
-  root.style.setProperty('--top-inset', `${top}px`);
-  root.style.setProperty('--bottom-inset', `${bottom}px`);
-  root.classList.add('immersive-ready');
+  if (top !== applied.top) {
+    root.style.setProperty('--top-inset', `${top}px`);
+    applied.top = top;
+  }
+  if (bottom !== applied.bottom) {
+    root.style.setProperty('--bottom-inset', `${bottom}px`);
+    applied.bottom = bottom;
+  }
+  if (!root.classList.contains('immersive-ready')) {
+    root.classList.add('immersive-ready');
+  }
+}
+
+/**
+ * The color the host paints the system bars with.
+ *
+ * The host tints the status bar and the gesture area from the
+ * `<meta name="theme-color">` tag, but the value in the document is a static
+ * approximation of the palette. On ColorOS 17 that approximation did not
+ * match the surface the page actually paints, which left a visible strip of
+ * a different color above the app and behind the gesture handle. Reading the
+ * resolved custom property gives the exact color of the current theme, so
+ * the bars blend into the page.
+ */
+export function surfaceColor(): string {
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue('--m-color-surface')
+    .trim();
+  return value || (document.documentElement.classList.contains('m-theme-dark') ? '#000000' : '#f7f7f7');
+}
+
+/**
+ * Push the resolved surface color into the theme-color meta tag.
+ *
+ * The value is only written when it actually changes, for the same reason
+ * the insets are only written on change.
+ */
+let appliedThemeColor = '';
+
+export function syncThemeColor(): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  const color = surfaceColor();
+  if (color === appliedThemeColor) return;
+  appliedThemeColor = color;
+  meta.setAttribute('content', color);
 }
 
 /**

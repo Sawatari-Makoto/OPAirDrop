@@ -20,6 +20,13 @@ final class ReceiveController {
     private static String oldDownloadDirectory;
     private static Method advertise;
     private static long nextRetry;
+    // The module opens the receiver gate while the share surface is visible.
+    // That gate can flap for a moment while the supervisor re-evaluates the
+    // session; tearing the advertisement down on the first false sample
+    // removed this device from the iPhone AirDrop list for several seconds.
+    // Releasing therefore requires the wish to stay false for a few ticks.
+    private static final int RELEASE_GRACE_TICKS = 5;
+    private static int wantMisses;
     private static String advertisedName = "";
     private ReceiveController() {}
 
@@ -141,6 +148,9 @@ final class ReceiveController {
             catch (RuntimeException failure) { Log.w(Entry.TAG, "mode switch discovery release deferred", failure); }
         }
         String desiredName = ProviderApi.localDeviceName();
+        // A live wish clears the accumulated misses, so only a continuous
+        // absence of the wish can reach the release threshold.
+        if (want) wantMisses = 0;
         if (want && !owned && !ProviderApi.hasOutgoing() && android.os.SystemClock.elapsedRealtime() >= nextRetry) {
             try {
                 if (ProviderApi.nativeReceiveBusy()) return;
@@ -166,8 +176,13 @@ final class ReceiveController {
                 nextRetry = android.os.SystemClock.elapsedRealtime() + 15_000;
                 release();
             }
-        } else if (!want && owned && !IncomingReceiver.busy()) release();
-        else if (want && owned && !advertisedName.equals(desiredName) && !IncomingReceiver.busy()
+        } else if (!want && owned && !IncomingReceiver.busy()) {
+            // Debounce the release: a single false sample must not tear the
+            // advertisement down, otherwise the iPhone loses this device
+            // from its AirDrop list for several seconds.
+            if (wantMisses++ < RELEASE_GRACE_TICKS) return;
+            release();
+        } else if (want && owned && !advertisedName.equals(desiredName) && !IncomingReceiver.busy()
                 && !ProviderApi.hasOutgoing() && android.os.SystemClock.elapsedRealtime() >= nextRetry) {
             try {
                 if (ProviderApi.nativeReceiveBusy()) return;

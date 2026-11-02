@@ -256,6 +256,25 @@ active_services() {
     framework timeout 8 dumpsys activity services "$PKG" |
         sed -n '/  User 0 active services:/,$p'
 }
+# True when the package is currently listed among the disabled ones.
+package_disabled() {
+    framework timeout 8 pm list packages -d 2>/dev/null |
+        grep -qx "package:$PKG"
+}
+# True when the sharing component is currently disabled.
+# "pm enable" on an already enabled component still fires a PACKAGE_CHANGED
+# broadcast, which restarts the provider process and tears down the AirDrop
+# mDNS advertisement, so the module must only enable it when it is off.
+component_disabled() {
+    dump=$(framework timeout 12 dumpsys package "$PKG" 2>/dev/null) || return 1
+    enabled=$(printf '%s\n' "$dump" |
+        sed -n '/enabledComponents:/,/^        [^ ]/p' | grep -c 'ExternalSharingService' || true)
+    disabled=$(printf '%s\n' "$dump" |
+        sed -n '/disabledComponents:/,/^        [^ ]/p' | grep -c 'ExternalSharingService' || true)
+    [ "${enabled:-0}" -gt 0 ] && return 1
+    [ "${disabled:-0}" -gt 0 ] && return 0
+    return 0
+}
 kernel_matches() {
     # The stock WLAN and mac80211 builds differ per firmware and per device,
     # so their build ids cannot be compared against a fixed value. What the

@@ -1,5 +1,24 @@
 # OPAirDrop 更新日志
 
+## 1.1.6
+
+- 修复与 iPhone 双向互见偶发中断的问题。根因是接收门控在开关广播的每一轮都被「开门条件
+  含前台判定、关门条件不含」的不对称逻辑反复开关，广播只存活约 2 秒；现在关门条件补上
+  同样的前台判定，共享界面可见时不再误关。
+- 前台判定去抖。共享界面可能在单次 activity dump 里短暂丢失，一次坏样本就会把本机从
+  iPhone 的 AirDrop 列表里移除几秒；现在连续 `FOREGROUND_CLOSE_STREAK=3` 次「已关闭」
+  才真正关闸，且 `foreground_state()` 对关闭结果做二次 dump 确认（超时 4→6 秒）。
+- provider 只在组件确实被禁用时才重新启用。此前无条件 `pm enable` 会触发
+  PACKAGE_CHANGED 广播重启 provider 进程，打断 AirDrop 的 mDNS 广播；现在通过
+  `package_disabled()` / `component_disabled()` 按需启用，健康 provider 完全不动。
+- 接收端 release 去抖（`RELEASE_GRACE_TICKS=5`）。单次「想接收」的假负样本不再立即拆掉
+  广播，只有连续多次缺失才释放，消除本机从 iPhone 列表里闪现几秒后消失的现象。
+- WebUI 状态栏与小白条沉浸适配 ColorOS 17：`theme-color` 读取当前主题实际解析出的
+  `--m-color-surface` 色值，取代原先硬编码的近似色，消除状态栏与手势区色差。
+- WebUI 动画连贯性与动效优化：insets 与主题色只在值真正变化时才写入（不再每 500ms 轮询
+  重写触发整棵样式树重排打断过渡）；页面切换用 `<Transition>` 包裹并复位滚动位置。
+- WebUI 导航栏改为悬浮玻璃胶囊：抬高、圆角、高斯模糊 + 饱和，手势区保持页面底色。
+
 ## 1.1.5
 
 - 修复冷启动时开机自动拉起被误判为致命失败的问题。此前 `transfer-idle.sh` 只区分

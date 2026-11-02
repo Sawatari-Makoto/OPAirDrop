@@ -14,9 +14,12 @@ case "${1:-status}" in
     ensure|adopt)
         /system/bin/sh "$MODDIR/bin/app-check.sh" || exit 3
         framework service check "$SERVICE" | grep -q ': found' || { echo 'Native service absent'; exit 3; }
-        # Boot receiver disabled the component when native service was absent.
-        framework pm enable --user 0 "$PKG" >/dev/null
-        framework pm enable --user 0 "$COMP" >/dev/null
+        # The boot receiver disabled the component when the native service was
+        # absent. Re-enabling an already enabled component still fires a
+        # PACKAGE_CHANGED broadcast, which restarts the provider process and
+        # tears down the AirDrop mDNS advertisement, so only enable on demand.
+        if package_disabled; then framework pm enable --user 0 "$PKG" >/dev/null; fi
+        if component_disabled; then framework pm enable --user 0 "$COMP" >/dev/null; fi
         trap 'framework cmd deviceidle tempwhitelist -r "$PKG" >/dev/null 2>&1 || true' EXIT
         records=$(active_services)
         if ! echo "$records" | grep -q 'ExternalSharingService'; then

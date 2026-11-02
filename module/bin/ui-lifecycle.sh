@@ -35,25 +35,59 @@ wifi_session() {
         /system/bin/timeout -k 2 18 /system/bin/app_process /system/bin OPAirShareSessionWifi "$1" "$STATE/session-wifi" 8>&-
 }
 
+# Reads the resumed activity and reports open/closed/unknown for the
+# current share surface. A dump can be truncated when the activity manager
+# is busy, which used to hide a visible share surface for a single sample.
+# That single false "closed" sample closed the receiver gate and dropped
+# this device from the iPhone AirDrop list, so a closed result is confirmed
+# with a second dump before it is trusted.
+# Tells whether the resumed activity belongs to a share surface.
+# $1 = resumed activity lines, $2 = full activity dump.
+foreground_matches() {
+    _resumed="$1"
+    _activities="$2"
+    # A visible OShare share surface is an explicit user intent to share, so
+    # it always counts as an open surface. It used to be hidden while the
+    # applied share mode was "quickshare", because the mode property changes
+    # during a mode switch. That turned a visible share surface into a
+    # "closed" reading for a moment, which closed the receiver gate and
+    # removed this device from the iPhone AirDrop list.
+    if printf '%s\n' "$_resumed" | grep -Eq '(com\.coloros\.oshare/(\.ui\.(IOS)?ShareActivity|com\.(oplus|coloros)\.oshare\.ui\.(IOS)?ShareActivity)|com\.android\.intentresolver/(\.ChooserActivity(Launcher)?|com\.android\.intentresolver\.ChooserActivity(Launcher)?)|com\.android\.internal\.app\.ResolverActivity)([ }]|$)'; then
+        return 0
+    fi
+    if [ "$SHARE_MODE" != oshare ] && printf '%s\n' "$_resumed" | grep -Eq 'com\.google\.android\.gms/[^ ]*nearby\.sharing\.'; then
+        return 0
+    fi
+    if [ "$SHARE_MODE" != oshare ] && [ -e "$STATE/ui-session" ] &&
+       printf '%s\n' "$_resumed" | grep -Eq '(com\.android\.documentsui|com\.google\.android\.documentsui)/';then
+        _task=$(printf '%s\n' "$_resumed" | sed -n 's/.* t\([0-9][0-9]*\).*/\1/p' | head -n 1)
+        if [ -n "$_task" ] &&
+           grep -Eq "com\.google\.android\.gms/[^ ]*nearby\.sharing\..* t${_task}[ }]" "$_activities";then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 foreground_state() {
     SHARE_MODE=$(active_share_mode)
     activities_file="$STATE/foreground-$$.txt"
-    if ! /system/bin/timeout 4 /system/bin/dumpsys activity activities > "$activities_file" 2>/dev/null; then
+    if ! /system/bin/timeout 6 /system/bin/dumpsys activity activities > "$activities_file" 2>/dev/null; then
         echo unknown;return
     fi
     resumed=$(grep -E 'topResumedActivity=|mResumedActivity:|ResumedActivity:' "$activities_file" || true)
     if [ -z "$resumed" ];then echo unknown;return;fi
-    if { [ "$SHARE_MODE" != oshare ] && printf '%s\n' "$resumed" | grep -Eq 'com\.google\.android\.gms/[^ ]*nearby\.sharing\.'; } ||
-       { [ "$SHARE_MODE" != quickshare ] && printf '%s\n' "$resumed" | grep -Eq '(com\.coloros\.oshare/(\.ui\.(IOS)?ShareActivity|com\.(oplus|coloros)\.oshare\.ui\.(IOS)?ShareActivity)|com\.android\.intentresolver/(\.ChooserActivity(Launcher)?|com\.android\.intentresolver\.ChooserActivity(Launcher)?)|com\.android\.internal\.app\.ResolverActivity)([ }]|$)'; }; then
-        echo open;return
-    fi
-    if [ "$SHARE_MODE" != oshare ] && [ -e "$STATE/ui-session" ] &&
-       printf '%s\n' "$resumed" | grep -Eq '(com\.android\.documentsui|com\.google\.android\.documentsui)/';then
-        task=$(printf '%s\n' "$resumed" | sed -n 's/.* t\([0-9][0-9]*\).*/\1/p' | head -n 1)
-        if [ -n "$task" ] &&
-           grep -Eq "com\.google\.android\.gms/[^ ]*nearby\.sharing\..* t${task}[ }]" "$activities_file";then
-            echo open;return
+    if ! foreground_matches "$resumed" "$activities_file";then
+        # The dump may have been cut short while the activity manager was
+        # busy. Re-read it once before reporting that no share surface is
+        # visible.
+        if /system/bin/timeout 6 /system/bin/dumpsys activity activities > "$activities_file" 2>/dev/null; then
+            resumed=$(grep -E 'topResumedActivity=|mResumedActivity:|ResumedActivity:' "$activities_file" || true)
+            if [ -z "$resumed" ];then echo unknown;return;fi
         fi
+    fi
+    if foreground_matches "$resumed" "$activities_file";then
+        echo open;return
     fi
     echo closed
 }
@@ -159,6 +193,11 @@ receive_published=0
 receive_samples=10
 idle_sleeping=0
 foreground_was=unknown
+# Number of consecutive closed readings required before the receiver gate is
+# closed. The share surface is judged from an activity dump, and one bad
+# dump must not be able to remove this device from the iPhone AirDrop list.
+FOREGROUND_CLOSE_STREAK=3
+foreground_closed_streak=0
 while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
       [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
     kernel_matches || { echo 'Driver identity changed; no automatic reload'; exit 6; }
@@ -172,14 +211,14 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         sleep 1;continue
     fi
     if ! monitor_coex_wifi;then
+        echo 'GATECLEAR reason=coex_monitor_failed'
         /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
         receive_published=0
         sleep 1;continue
     fi
     /system/bin/sh "$MODDIR/bin/coex-session.sh" tick 8>&- || echo 'COEX_RX_RETRY: retaining session'
     if [ "$coex_recover" = 1 ];then
-        # Close admission immediately, including while the share UI is open.
-        # Busy/unknown transfers retain the provider, RX host and snapshots.
+        echo 'GATECLEAR reason=coex_recover'
         /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
         receive_published=0
         if close_session recover;then
@@ -210,6 +249,7 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     receive_samples=$((receive_samples+1))
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
     foreground=$(foreground_state)
+    echo "FG_DEBUG foreground=$foreground streak=${foreground_closed_streak:-0} published=${receive_published:-0} eligible=$receive_eligible"
     # A visible share surface is an explicit intent to send or receive, so it
     # keeps the session armed and refreshes the idle timer. The timer is
     # refreshed on the transition only, so a surface that stays open does not
@@ -243,7 +283,29 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     else
         idle_sleeping=0
     fi
-    if [ "$receive_eligible" != 1 ] && [ "$receive_published" = 1 ];then
+    # Admission is opened while the share surface is open OR background
+    # reception is wanted. It must be closed under exactly the same
+    # condition: clearing while the share surface is still visible closes
+    # the receiver gate for a moment, the provider stops advertising, and the
+    # iPhone loses this device from its AirDrop list. Keep-alive is off by
+    # default, so without the foreground term the gate was reopened and
+    # closed again on every sample and the advertisement only survived for
+    # about a second.
+    # A closed reading is only trusted after it was seen repeatedly. A share
+    # surface can disappear from a single activity dump while the surface is
+    # still visible, and closing the gate on that sample tears the
+    # advertisement down, which removes this device from the iPhone AirDrop
+    # list until the next share surface is opened.
+    if [ "$foreground" = open ];then
+        foreground_closed_streak=0
+    elif [ "$foreground" = closed ];then
+        foreground_closed_streak=$((foreground_closed_streak+1))
+    else
+        foreground_closed_streak=0
+    fi
+    if [ "$receive_eligible" != 1 ] && [ "$foreground" != open ] &&
+       [ "$foreground_closed_streak" -ge "$FOREGROUND_CLOSE_STREAK" ] && [ "$receive_published" = 1 ];then
+        echo "GATECLEAR reason=not_wanted foreground=$foreground streak=$foreground_closed_streak"
         /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
         receive_published=0
     fi
@@ -298,15 +360,20 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
             provider_samples=$((provider_samples+1))
             if [ -z "$(pidof "$PKG" || true)" ];then
                 provider_ready=0
+                echo 'GATECLEAR reason=provider_process_lost'
                 /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
                 receive_published=0
                 provider_samples=10
             fi
-            if [ "$provider_samples" -ge 10 ] && [ "$provider_failures" -lt 3 ]; then
+            # Only re-run the activation sequence when the provider is not
+            # healthy. Re-activating a live provider resets its advertising
+            # state, so a healthy provider is left completely untouched.
+            if [ "$provider_samples" -ge 10 ] && [ "$provider_failures" -lt 3 ] && [ "$provider_ready" -ne 1 ]; then
                 if /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" ensure 8>&-;then
                     provider_failures=0;provider_ready=1
                 else
                     provider_ready=0
+                    echo 'GATECLEAR reason=provider_ensure_failed'
                     /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
                     receive_published=0
                     provider_failures=$((provider_failures+1));echo "Provider retry failed count=$provider_failures"
@@ -326,6 +393,7 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
                 receive_published=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" ready 8>&-)
                 if [ "$receive_previous" != 1 ] && [ "$receive_published" = 1 ];then startup_trace RECEIVE_GATE_OPEN;fi
             else
+                echo 'GATECLEAR reason=ensure_ui_failed'
                 /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
                 receive_published=0
                 echo 'OShare receiver UI unavailable; AirDrop receive admission closed'
