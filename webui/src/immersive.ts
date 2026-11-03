@@ -93,12 +93,28 @@ function applyInsets(): void {
  * a different color above the app and behind the gesture handle. Reading the
  * resolved custom property gives the exact color of the current theme, so
  * the bars blend into the page.
+ *
+ * The resolved value is normalised to a six-digit `#rrggbb` literal. The
+ * palette stores the dark surface as `#000`; some native hosts hand the meta
+ * value straight to an Android `Color.parseColor`, which rejects the
+ * three-digit shorthand and then falls back to the host default — the exact
+ * colour band that breaks the immersion.
  */
 export function surfaceColor(): string {
-  const value = getComputedStyle(document.documentElement)
+  const raw = getComputedStyle(document.documentElement)
     .getPropertyValue('--m-color-surface')
     .trim();
+  const value = normalizeHex(raw);
   return value || (document.documentElement.classList.contains('m-theme-dark') ? '#000000' : '#f7f7f7');
+}
+
+/** Expand `#rgb` to `#rrggbb`, otherwise return the input unchanged (or ''). */
+function normalizeHex(color: string): string {
+  const hex = color.replace(/^#/, '').toLowerCase();
+  if (/^[0-9a-f]{3}$/.test(hex)) {
+    return `#${hex.split('').map((c) => c + c).join('')}`;
+  }
+  return /^[0-9a-f]{6}$/.test(hex) ? `#${hex}` : '';
 }
 
 /**
@@ -131,5 +147,16 @@ export function setupImmersiveLayout(): void {
   if (typeof ResizeObserver === 'function') {
     const observer = new ResizeObserver(() => applyInsets());
     observer.observe(document.documentElement);
+  }
+
+  // Re-sync the system bar colour when the OS light/dark preference flips.
+  // The theme class is normally toggled by the UI kit, but a host that keys
+  // the palette off `prefers-color-scheme` alone may never mutate the class,
+  // which the class observer would miss — leaving the bars one theme behind.
+  if (typeof window.matchMedia === 'function') {
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    const onSchemeChange = () => syncThemeColor();
+    if (query.addEventListener) query.addEventListener('change', onSchemeChange);
+    else if (query.addListener) query.addListener(onSchemeChange);
   }
 }

@@ -11,6 +11,11 @@ init_state
 receive_wanted() {
     [ "$(saved_share_mode)" = "$(active_share_mode)" ] || return 1
     [ "$(active_share_mode)" != quickshare ] || return 1
+    # The user's OShare "一加互传" receive switch owns AirDrop visibility:
+    # receive-off (oshare_state == 0) closes the broadcast session, while
+    # everyone (1) and contacts-only (2) both keep it armed.
+    oshare_state=$(/system/bin/settings get system oshare_state 2>/dev/null || true)
+    [ "$oshare_state" != 0 ] || return 1
     # Whether the AirDrop wireless session may be opened at all: the module is
     # enabled, the stack is owned and coexistence is available. This is the
     # admission gate used when the share surface is open.

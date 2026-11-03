@@ -62,6 +62,7 @@ public final class Entry extends XposedModule {
     private boolean oshareInstalled;
 
     private void hookOShareApplication(ClassLoader loader) throws Exception {
+        hookTimeoutFallback(loader);
         Method onCreate = loader.loadClass("com.oplus.oshare.OShareApplication").getDeclaredMethod("onCreate");
         hook(onCreate).intercept(chain -> {
             Object result = chain.proceed();
@@ -86,6 +87,29 @@ public final class Entry extends XposedModule {
             }
             return result;
         });
+    }
+
+    /** The 10-minute "everyone" window must fall back to receive-off, never to contacts-only. */
+    private void hookTimeoutFallback(ClassLoader loader) {
+        try {
+            Method setState = loader.loadClass("com.oplus.oshare.device.TimeoutReceiver")
+                    .getDeclaredMethod("a", Context.class, int.class);
+            hook(setState).intercept(chain -> {
+                try {
+                    Object value = chain.getArg(1);
+                    if (value instanceof Integer && (Integer) value == 2) {
+                        Object[] args = chain.getArgs().toArray();
+                        args[1] = 0;
+                        log(Log.INFO, TAG, "oshare timeout fallback: contacts-only(2) -> receive-off(0)");
+                        return chain.proceed(args);
+                    }
+                } catch (Throwable t) { log(Log.WARN, TAG, "timeout fallback remap failed", t); }
+                return chain.proceed();
+            });
+            log(Log.INFO, TAG, "oshare timeout fallback hook installed");
+        } catch (Throwable t) {
+            log(Log.ERROR, TAG, "oshare timeout fallback hook unavailable", t);
+        }
     }
 
     private void hookApplication(ClassLoader cl) {

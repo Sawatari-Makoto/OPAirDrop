@@ -111,15 +111,7 @@ public final class OShareBridge {
             }));
             HOOKS.add(module.hook(symbols.method("activity.resume")).intercept(chain -> {
                 Object result = chain.proceed();
-                Activity current = (Activity) chain.getThisObject();
-                if (activity.get() != current) {
-                    connectionGeneration++;
-                    connecting = false;
-                }
-                activity = new WeakReference<>(current);
-                OShareAppearance.renameSection(current);
-                StartupTrace.mark("SHARE_PAGE_RESUMED");
-                MAIN.post(OShareBridge::syncSession);
+                onShareSurfaceResumed((Activity) chain.getThisObject());
                 return result;
             }));
             for (String role : new String[]{"activity.update", "activity.list", "activity.panel"}) {
@@ -136,6 +128,38 @@ public final class OShareBridge {
                 }
                 return chain.proceed();
             }));
+            // "与 iPhone 互传" is a sibling activity whose onResume never fires the
+            // ShareActivity hook above. Arm the same discovery so iPhones appear there too.
+            try {
+                Class<?> ios = iosShareActivity(cl, symbols);
+                Method iosResume = lifecycleMethod(ios, "onResume");
+                iosResume.setAccessible(true);
+                // Skip the inherited method when it is the very ShareActivity hook above,
+                // otherwise the same resume path would be armed twice.
+                if (!iosResume.equals(symbols.method("activity.resume"))) {
+                    HOOKS.add(module.hook(iosResume).intercept(chain -> {
+                        Object result = chain.proceed();
+                        onShareSurfaceResumed((Activity) chain.getThisObject());
+                        return result;
+                    }));
+                }
+                Method iosDestroy = lifecycleMethod(ios, "onDestroy");
+                iosDestroy.setAccessible(true);
+                if (!iosDestroy.equals(symbols.method("activity.destroy"))) {
+                    HOOKS.add(module.hook(iosDestroy).intercept(chain -> {
+                        Object result = chain.proceed();
+                        if (activity.get() == chain.getThisObject()) {
+                            activity.clear();
+                            MAIN.post(OShareBridge::syncSession);
+                        }
+                        return result;
+                    }));
+                }
+                module.log(Log.INFO, TAG, "IOSShareActivity discovery armed on " + ios.getName()
+                        + " (resume=" + iosResume.getDeclaringClass().getSimpleName() + ")");
+            } catch (Throwable failure) {
+                module.log(Log.WARN, TAG, "IOSShareActivity hook unavailable; iPhone discovery limited to the share page", failure);
+            }
             // Hook the common internal service so regular OShare traffic keeps its original path.
             HOOKS.add(module.hook(symbols.method("service.send")).intercept(chain -> {
                 Object device = chain.getArg(1);
@@ -189,6 +213,41 @@ public final class OShareBridge {
 
     private static boolean isCurrentActivity(Activity current) {
         return current != null && activity.get() == current && !current.isFinishing() && !current.isDestroyed();
+    }
+
+    /** Arms discovery whenever a share surface resumes, so peers become visible. */
+    private static void onShareSurfaceResumed(Activity current) throws Exception {
+        if (activity.get() != current) {
+            connectionGeneration++;
+            connecting = false;
+        }
+        activity = new WeakReference<>(current);
+        OShareAppearance.renameSection(current);
+        StartupTrace.mark("SHARE_PAGE_RESUMED");
+        MAIN.post(OShareBridge::syncSession);
+    }
+
+    /** Resolves the "与 iPhone 互传" activity, a manifest component in the same package as ShareActivity. */
+    private static Class<?> iosShareActivity(ClassLoader loader, OShareSymbols symbols) throws Exception {
+        String share = symbols.type("activity").getName();
+        String pkg = share.substring(0, share.lastIndexOf('.'));
+        try { return Class.forName(pkg + ".IOSShareActivity", false, loader); }
+        catch (ClassNotFoundException ignored) {}
+        for (String name : new String[]{"com.oplus.oshare.ui.IOSShareActivity",
+                "com.coloros.oshare.ui.IOSShareActivity"}) {
+            try { return Class.forName(name, false, loader); }
+            catch (ClassNotFoundException ignored) {}
+        }
+        throw new ClassNotFoundException("IOSShareActivity (package " + pkg + ")");
+    }
+
+    /** Walks the class hierarchy so a lifecycle method inherited from a base activity still resolves. */
+    private static Method lifecycleMethod(Class<?> type, String name) throws NoSuchMethodException {
+        for (Class<?> cursor = type; cursor != null; cursor = cursor.getSuperclass()) {
+            try { return cursor.getDeclaredMethod(name); }
+            catch (NoSuchMethodException ignored) {}
+        }
+        throw new NoSuchMethodException(type.getName() + "." + name);
     }
 
     private static boolean uiWanted() {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref,computed,watch,onMounted,onBeforeUnmount} from 'vue';
-import {MiuixSnackbarHost,MiuixScrollArea,MiuixIcon,MiuixNavigationBar,MiuixTopAppBar,MiuixIconButton,MiuixButton,MiuixCard,MiuixSmallTitle,MiuixText,MiuixInput,MiuixBasicComponent,MiuixRadioButtonPreference,MiuixSwitchPreference,showSnackbar} from 'miuix-vue';
+import {MiuixSnackbarHost,MiuixScrollArea,MiuixIcon,MiuixNavigationBar,MiuixTopAppBar,MiuixIconButton,MiuixButton,MiuixCard,MiuixSmallTitle,MiuixText,MiuixInput,MiuixBasicComponent,MiuixRadioButtonPreference,showSnackbar} from 'miuix-vue';
 import {ScreenMirroring,Settings} from 'miuix-vue/icons';
 import {API,type Status,type HistoryData,type SpeedRecord,type ShareMode} from './api';
 import {setupImmersiveLayout,setMeasuredInsets,syncThemeColor} from './immersive';
@@ -13,7 +13,7 @@ const manualBusy=ref(false);
 const history=ref<HistoryData|null>(null);
 const navItems=[{label:'状态'},{label:'设置'}];
 const icons=[ScreenMirroring,Settings];
-const settingsView=ref<'main'|'about'|'logs'|'name'|'directory'|'sharing'|'licenses'|'idle'>('main'),logs=ref('点击刷新读取模块日志。'),logBusy=ref(false),exportBusy=ref(false),exportedPath=ref('');
+const settingsView=ref<'main'|'about'|'logs'|'name'|'directory'|'sharing'|'licenses'>('main'),logs=ref('点击刷新读取模块日志。'),logBusy=ref(false),exportBusy=ref(false),exportedPath=ref('');
 const shareModeNames:Record<ShareMode,string>={quickshare:'Quick Share',oshare:'OShare',both:'二者共存'};
 const shareModeOptions:{value:ShareMode;title:string;summary:string}[]=[
  {value:'quickshare',title:'Quick Share',summary:'使用 Quick Share 与 Apple 收发，关闭 OShare 的 AirDrop 桥接和后台接收'},
@@ -21,32 +21,11 @@ const shareModeOptions:{value:ShareMode;title:string;summary:string}[]=[
  {value:'both',title:'二者共存',summary:'两个入口均可发送，AirDrop 后台接收由 OShare 展示'},
 ];
 const oshareEnabled=computed(()=>state.value?.share_mode_active!=='quickshare');
-const idleTimeoutSummary=computed(()=>{
- if(!state.value)return '读取中';
- const seconds=state.value.idle_timeout??120;
- if(seconds<=0)return '不自动释放（保持常驻）';
- if(seconds<60)return `分享界面关闭后 ${seconds} 秒释放无线会话`;
- return `分享界面关闭后 ${Math.round(seconds/60)} 分钟释放无线会话`;
-});
-const keepaliveOn=computed(()=>state.value?.airdrop_keepalive==='on');
-const keepaliveSummary=computed(()=>{
- if(!state.value)return '读取中';
- if(keepaliveOn.value)return '保持后台可被 Apple 设备发现，会持续占用功耗';
- const seconds=state.value.idle_timeout??120;
- if(seconds<=0)return '关闭后仅在打开分享界面时启用；当前空闲时间为 0，仍会保持常驻';
- if(seconds<60)return `关闭后仅在打开分享界面时启用，${seconds} 秒无操作后释放`;
- return `关闭后仅在打开分享界面时启用，${Math.round(seconds/60)} 分钟无操作后释放`;
-});
-const idleTimeoutValid=computed(()=>{
- const value=Number.parseInt(idleDraft.value,10);
- return Number.isInteger(value)&&value>=0&&value<=86400;
-});
 const shareModeSummary=computed(()=>!state.value?'读取中':state.value.share_mode===state.value.share_mode_active?shareModeNames[state.value.share_mode]:`${shareModeNames[state.value.share_mode]}，等待当前任务结束后切换（当前：${shareModeNames[state.value.share_mode_active]}）`);
 const nameDraft=ref('');
 const directoryDraft=ref('');
-const idleDraft=ref('120');
 const nameLength=computed(()=>[...nameDraft.value.trim()].length);
-const pageTitle=computed(()=>tab.value===0?'AirDrop':settingsView.value==='about'?'关于':settingsView.value==='licenses'?'开放源代码许可':settingsView.value==='logs'?'日志':settingsView.value==='name'?'AirDrop 名称':settingsView.value==='directory'?'接收文件保存位置':settingsView.value==='idle'?'空闲释放无线会话':settingsView.value==='sharing'?'AirDrop 分享入口':'设置');
+const pageTitle=computed(()=>tab.value===0?'AirDrop':settingsView.value==='about'?'关于':settingsView.value==='licenses'?'开放源代码许可':settingsView.value==='logs'?'日志':settingsView.value==='name'?'AirDrop 名称':settingsView.value==='directory'?'接收文件保存位置':settingsView.value==='sharing'?'AirDrop 分享入口':'设置');
 const live=computed(()=>history.value?.live);
 const recorderOn=computed(()=>history.value?.recorder==='on');
 const recording=computed(()=>recorderOn.value&&live.value?.state==='recording');
@@ -109,9 +88,6 @@ async function readLogs(){if(logBusy.value)return false;logBusy.value=true;try{l
 async function exportLogs(){if(exportBusy.value)return;exportBusy.value=true;try{exportedPath.value=await API.exportLogs();showSnackbar({message:'日志已保存到 Download/OPAirShare'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{exportBusy.value=false;}}
 function editName(){if(!state.value||busy.value)return;nameDraft.value=state.value.airdrop_name_custom;settingsView.value='name';}
 function editDirectory(){if(!state.value||busy.value)return;directoryDraft.value=state.value.receive_directory;settingsView.value='directory';}
-function editIdleTimeout(){if(!state.value||busy.value)return;idleDraft.value=String(state.value.idle_timeout??120);settingsView.value='idle';}
-async function saveIdleTimeout(){if(busy.value||!state.value||!idleTimeoutValid.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveIdleTimeout(Number.parseInt(idleDraft.value,10)));showSnackbar({message:'空闲时间已保存'});settingsView.value='main';}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
-async function toggleKeepalive(value:boolean){if(busy.value||!state.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveKeepalive(value));showSnackbar({message:value?'已开启一加互传常驻':'已关闭一加互传常驻'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 async function changeShareMode(mode:ShareMode){if(busy.value||!state.value||mode===state.value.share_mode)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveShareMode(mode));showSnackbar({message:state.value!.share_mode===state.value!.share_mode_active?'分享入口已切换':'已保存，正在等待当前任务结束后切换'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 async function saveDirectory(reset=false){if(busy.value||!state.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveDirectory(reset?'':directoryDraft.value));directoryDraft.value=state.value!.receive_directory;showSnackbar({message:reset?'已恢复默认保存位置':'保存位置已更新，下一次保存时生效'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
 async function saveName(reset=false){if(busy.value||!state.value)return;busy.value=true;statusEpoch++;error.value='';try{acceptStatus(await API.saveName(reset?'':nameDraft.value));nameDraft.value=state.value!.airdrop_name_custom;showSnackbar({message:reset?'已恢复默认名称':'名称已保存'});}catch(e){error.value=e instanceof Error?e.message:String(e);showSnackbar({message:error.value});}finally{busy.value=false;}}
@@ -151,9 +127,6 @@ onBeforeUnmount(()=>{if(timer)clearInterval(timer);if(themeObserver)themeObserve
     <MiuixCard><MiuixBasicComponent title="AirDrop 名称" :summary="oshareEnabled?(state?.airdrop_name||'读取中'):'使用 Quick Share 中的设备名称'" :disabled="busy||!state||!oshareEnabled" clickable @click="editName"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent></MiuixCard>
    <MiuixSmallTitle text="文件接收"/>
    <MiuixCard><MiuixBasicComponent title="保存位置" :summary="oshareEnabled?(state?(state.receive_directory||'按文件类型保存到默认目录'):'读取中'):'由 Quick Share 管理接收文件'" :disabled="busy||!state||!oshareEnabled" clickable @click="editDirectory"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent></MiuixCard>
-   <MiuixSmallTitle text="功耗"/>
-   <MiuixCard><MiuixSwitchPreference title="一加互传 常驻" :summary="keepaliveSummary" :model-value="keepaliveOn" :disabled="busy||!state" @change="toggleKeepalive"/></MiuixCard>
-   <MiuixCard><MiuixBasicComponent title="空闲后释放无线会话" :summary="idleTimeoutSummary" :disabled="busy||!state" clickable @click="editIdleTimeout"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent></MiuixCard>
    <MiuixSmallTitle text="通用"/>
     <MiuixCard><MiuixBasicComponent title="关于" clickable @click="settingsView='about'"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent><MiuixBasicComponent title="查看日志" clickable @click="openLogs"><template #end><span class="entry-arrow">›</span></template></MiuixBasicComponent><MiuixBasicComponent title="导出日志" :summary="exportBusy?'正在导出…':undefined" :disabled="exportBusy" clickable @click="exportLogs"><template #end><span class="entry-arrow">↗</span></template></MiuixBasicComponent></MiuixCard>
     <div v-if="exportedPath" class="export-result"><b>日志已导出</b><p>{{exportedPath}}</p></div>
@@ -178,15 +151,6 @@ onBeforeUnmount(()=>{if(timer)clearInterval(timer);if(themeObserver)themeObserve
      <p class="name-hint">填写手机内部存储中 Download 或 Documents 下的目录，例如 Download/AirDrop。设置后所有接收文件统一保存到此处，下一次保存时生效。</p>
      <p class="name-hint">留空恢复默认：图片保存在 Pictures/OPAirShare，视频保存在 Movies/OPAirShare，其他文件保存在 Download/OPAirShare。已有文件不会移动。</p>
      <div class="name-actions"><MiuixButton :disabled="busy||!state||(!directoryDraft&&!state.receive_directory)" @click="saveDirectory(true)">恢复默认</MiuixButton><MiuixButton :disabled="busy||!state" @click="saveDirectory()">{{busy?'正在保存…':'保存'}}</MiuixButton></div>
-    </form></MiuixCard>
-   </template>
-   <template v-else-if="settingsView==='idle'">
-    <MiuixSmallTitle text="空闲后释放无线会话"/>
-    <MiuixCard><form class="name-form" @submit.prevent="saveIdleTimeout()">
-     <MiuixInput v-model="idleDraft" label="空闲时间（秒）" placeholder="120" :single-line="true" :disabled="busy"/>
-     <p class="name-hint">后台接收保持开启时，无线会话会一直占用功耗。设置空闲时间后，超过该时长没有打开分享界面也没有传输，会自动释放无线会话以节省电量；下次打开分享界面时立即恢复。</p>
-     <p class="name-hint">填 0 表示不自动释放，始终保持后台可被 Apple 设备发现。取值范围 0 到 86400 秒。</p>
-     <div class="name-actions"><MiuixButton :disabled="busy||!state||!idleTimeoutValid" @click="saveIdleTimeout()">{{busy?'正在保存…':'保存'}}</MiuixButton></div>
     </form></MiuixCard>
    </template>
    <template v-else-if="settingsView==='about'">
