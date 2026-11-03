@@ -1,5 +1,17 @@
 # OPAirDrop 更新日志
 
+## 1.1.17
+
+- 修复 AirDrop 会话掉线后无法恢复。根因：KernelSU 会在同一次开机内重复执行
+  `service.sh`（模块刷新、ksud 重启等场景），而脚本此前没有单例保护——每个
+  重复实例都成为常驻监督循环，并发的启动序列互相拆台：一个循环 `pm enable`
+  重启 provider，另一个循环 `pm disable-user` 回收它，每次组件状态翻转都是
+  一次 PACKAGE_CHANGED 强杀（AirDrop 的 mDNS 广播随之被拆）；更糟的是并发
+  bootstrap 会把 callback 补丁 overlay 拆下后未能重挂，之后 provider 校验
+  APK 指纹恒失败，监督器重试 3 次后躺平，会话就彻底死到下次重启。现在
+  `service.sh` 全程持有排他锁，重复实例直接退出；监督循环在 ensure 失败时
+  检测补丁 overlay 是否丢失，丢失则自动重建后再试，会话可自愈。
+
 ## 1.1.16
 
 - 「与 iPhone 互传」页面接入 AirDrop：此前在该页面始终看不到 iPhone 设备。

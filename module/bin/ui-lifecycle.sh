@@ -444,10 +444,31 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
                     provider_failures=0;provider_ready=1
                 else
                     provider_ready=0
-                    echo 'GATECLEAR reason=provider_ensure_failed'
-                    /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
-                    receive_published=0
-                    provider_failures=$((provider_failures+1));echo "Provider retry failed count=$provider_failures"
+                    # A start sequence that ran concurrently with this loop
+                    # (KernelSU re-ran service.sh mid-boot) can leave the
+                    # callback overlay unmounted: every provider ensure then
+                    # fails on the APK integrity check while the radio itself
+                    # is fine. Rebuild the patch before counting the failure,
+                    # otherwise the supervisor gives up after three retries
+                    # and the AirDrop session stays dead until the next boot.
+                    if ! /system/bin/sh "$MODDIR/bin/app-check.sh" patched 8>&-; then
+                        echo 'CALLBACK_OVERLAY_LOST; rebuilding the discovery patch'
+                        /system/bin/sh "$MODDIR/bin/callback.sh" restore 8>&- || true
+                        if /system/bin/sh "$MODDIR/bin/callback.sh" ensure 8>&-; then
+                            if /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" ensure 8>&-;then
+                                provider_failures=0;provider_ready=1
+                                echo 'PROVIDER_READY after overlay rebuild'
+                            fi
+                        else
+                            echo 'CALLBACK_OVERLAY_REBUILD_FAILED'
+                        fi
+                    fi
+                    if [ "$provider_ready" -ne 1 ]; then
+                        echo 'GATECLEAR reason=provider_ensure_failed'
+                        /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
+                        receive_published=0
+                        provider_failures=$((provider_failures+1));echo "Provider retry failed count=$provider_failures"
+                    fi
                 fi
                 provider_samples=0
             fi

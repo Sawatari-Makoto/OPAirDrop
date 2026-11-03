@@ -4,6 +4,18 @@ MODDIR=${0%/*}
 root_enter_global "$0" "$@" || exit 2
 . "$MODDIR/bin/common.sh"
 init_state
+# KernelSU has been observed to execute service.sh more than once within a
+# single boot (module refresh, ksud restart). Every extra instance becomes a
+# second resident supervisor: concurrent start sequences enable/disable the
+# provider package and rebuild the callback APK overlay over each other, and
+# each PACKAGE_CHANGED kill tears down the AirDrop mDNS advertisement until
+# the whole session is gone. Hold an exclusive lock for the entire lifetime;
+# a duplicate instance simply exits instead of supervising in parallel.
+exec 8>"$STATE/service.flock"
+if ! flock -n 8 8>&8; then
+    log -t opairshare-quickshare 'resident service already running; duplicate instance exits'
+    exit 0
+fi
 rm -f "$STATE/coex-off" "$STATE/coex-same149-only"
 : > "$STATE/startup-trace.log"
 startup_trace BOOT_SERVICE_ENTER
