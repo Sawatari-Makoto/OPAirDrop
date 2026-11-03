@@ -99,8 +99,12 @@ close_session() {
     # AirDrop reception ownership now follows the OShare receive switch
     # (oshare_state) directly, so a close here is always an explicit stop:
     # release the provider fully and let the radio return to power saving
-    # until the switch or a share surface re-arms the session.
-    if [ "${1:-normal}" != recover ];then
+    # until the switch or a share surface re-arms the session. "force" skips
+    # the foreground re-check: it is used when the activity dump has been
+    # unreadable for a full minute while reception is not wanted, where
+    # waiting forever would keep the AWDL session (and the paused Wi-Fi)
+    # resident with no way out.
+    if [ "${1:-normal}" != recover ] && [ "${1:-normal}" != force ];then
         [ "$(foreground_state)" = closed ] || return 10
     fi
     /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release 8>&- || return 6
@@ -176,6 +180,9 @@ provider_ready=0
 receive_published=0
 receive_samples=10
 foreground_was=unknown
+unknown_streak=0
+close_force=0
+close_failures=0
 # Number of consecutive closed readings required before the receiver gate is
 # closed. The share surface is judged from an activity dump, and one bad
 # dump must not be able to remove this device from the iPhone AirDrop list.
@@ -183,9 +190,20 @@ FOREGROUND_CLOSE_STREAK=3
 foreground_closed_streak=0
 # AirDrop payload traffic runs on the AWDL data interface (mosey0). Sampling
 # its byte counters lets the Xposed layer know a transfer happened recently,
-# which is what renews the OShare "everyone" 10-minute countdown.
+# which is what renews the OShare "everyone" 10-minute countdown. The window
+# restarts when a transfer ENDS, not when it starts: a running transfer keeps
+# the radio busy anyway, and the fresh 10-minute window after the last byte
+# (or after the transfer was interrupted) is what the user expects.
 last_tx=
 last_rx=
+# Transfer-activity state machine: a >=64KiB one-second delta marks the
+# transfer as running; three consecutive quiet samples mark it finished (or
+# interrupted) and only then stamp last_transfer for the Xposed renewal.
+transfer_active=0
+transfer_quiet=0
+transfer_stamped() {
+    /system/bin/setprop debug.opairshare.last_transfer "$(date +%s)" 2>/dev/null || true
+}
 while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
       [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
     kernel_matches || { echo 'Driver identity changed; no automatic reload'; exit 6; }
@@ -231,24 +249,62 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
             fi
             ;;
     esac
-    # Sample the AWDL data interface byte counters. Any change means AirDrop
-    # payload moved recently, which the Xposed layer reads to renew the
-    # OShare "everyone" 10-minute countdown (transfer activity resets it).
+    # Sample the AWDL data interface byte counters. Only a substantial delta
+    # counts as AirDrop payload: discovery traffic (mDNS announcements, action
+    # frames, service broadcasts) also moves bytes on mosey0 every second, and
+    # treating that as a transfer kept the OShare "everyone" 10-minute window
+    # renewed forever while idle, so it never fell back to receive-off and the
+    # armed AWDL session drained the battery. A real transfer moves at least a
+    # few hundred kilobytes; 64 KiB per one-second sample is far above any
+    # discovery chatter and far below any meaningful payload. The stamp is
+    # written when the transfer ends (three quiet seconds) or when the
+    # interface disappears mid-transfer (interruption), so the countdown
+    # restarts at 10:00 exactly when the user's transfer finished.
     tx_now=$(cat /sys/class/net/mosey0/statistics/tx_bytes 2>/dev/null || true)
     rx_now=$(cat /sys/class/net/mosey0/statistics/rx_bytes 2>/dev/null || true)
     if [ -n "$tx_now" ] && [ -n "$rx_now" ];then
-        if [ -n "$last_tx" ] && { [ "$tx_now" != "$last_tx" ] || [ "$rx_now" != "$last_rx" ]; };then
-            /system/bin/setprop debug.opairshare.last_transfer "$(date +%s)" 2>/dev/null || true
+        if [ -n "$last_tx" ] && [ -n "$last_rx" ];then
+            delta_tx=$((tx_now - last_tx))
+            delta_rx=$((rx_now - last_rx))
+            [ "$delta_tx" -lt 0 ] && delta_tx=0
+            [ "$delta_rx" -lt 0 ] && delta_rx=0
+            if [ $((delta_tx + delta_rx)) -ge 65536 ];then
+                transfer_active=1
+                transfer_quiet=0
+            elif [ "$transfer_active" = 1 ];then
+                transfer_quiet=$((transfer_quiet+1))
+                if [ "$transfer_quiet" -ge 3 ];then
+                    transfer_stamped
+                    transfer_active=0
+                fi
+            fi
         fi
         last_tx=$tx_now
         last_rx=$rx_now
+    elif [ "$transfer_active" = 1 ];then
+        # The AWDL interface vanished while bytes were still moving: the
+        # transfer was interrupted. Stamp now so the window restarts.
+        transfer_stamped
+        transfer_active=0
+        last_tx=
+        last_rx=
     fi
     receive_requested=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)
     receive_eligible=0
     receive_samples=$((receive_samples+1))
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
-    foreground=$(foreground_state)
-    echo "FG_DEBUG foreground=$foreground streak=${foreground_closed_streak:-0} published=${receive_published:-0} eligible=$receive_eligible"
+    # The per-second activity dump is one of the largest awake costs of this
+    # loop. When background reception is wanted, admission is owned by the
+    # switch alone (open OR eligible), so the foreground reading adds nothing
+    # and the dump is skipped entirely. Polling resumes the moment the switch
+    # returns to receive-off, which is when the foreground state matters
+    # again for closing the session.
+    if [ "$receive_eligible" = 1 ];then
+        foreground=eligible
+        foreground_closed_streak=0
+    else
+        foreground=$(foreground_state)
+    fi
     # A visible share surface is an explicit intent to send or receive, so it
     # keeps the session armed and refreshes the idle timer. The timer is
     # refreshed on the transition only, so a surface that stays open does not
@@ -269,10 +325,7 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     # reception is wanted. It must be closed under exactly the same
     # condition: clearing while the share surface is still visible closes
     # the receiver gate for a moment, the provider stops advertising, and the
-    # iPhone loses this device from its AirDrop list. Keep-alive is off by
-    # default, so without the foreground term the gate was reopened and
-    # closed again on every sample and the advertisement only survived for
-    # about a second.
+    # iPhone loses this device from its AirDrop list.
     # A closed reading is only trusted after it was seen repeatedly. A share
     # surface can disappear from a single activity dump while the surface is
     # still visible, and closing the gate on that sample tears the
@@ -292,7 +345,20 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         receive_published=0
     fi
     if [ "$foreground" = unknown ] && [ "$receive_eligible" != 1 ];then
-        off_samples=0;echo 'Cannot read foreground UI; retain current session';sleep 2;continue
+        # A single unreadable dump must not tear down a live session, but an
+        # activity manager that stays unreadable forever would pin the armed
+        # session (and the paused Wi-Fi) with no way out. After a minute of
+        # unreadable foreground with reception not wanted, close anyway.
+        unknown_streak=$((unknown_streak+1))
+        if [ "$unknown_streak" -lt 30 ];then
+            off_samples=0;echo 'Cannot read foreground UI; retain current session';sleep 2;continue
+        fi
+        echo 'Foreground unreadable for a minute; closing stalled session'
+        off_samples=99
+        close_force=1
+        unknown_streak=0
+    else
+        unknown_streak=0
     fi
     # Arm the session when the share surface is open, or when the receive
     # switch wants background reception. The switch is authoritative, so no
@@ -321,6 +387,17 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
                 continue
             fi
             [ -d "$STATE/coex-session" ] || { exec 6>&-;sleep 1;continue; }
+            # Snapshot the current STA association while it is still up.
+            # Arming AWDL pauses the STA on this platform (no concurrent
+            # radio capacity), and close_session reconnects the saved network
+            # from this metadata after the session is released. Without the
+            # capture the restore path is dead code and Wi-Fi stays paused
+            # until the user reconnects manually. A failed capture must not
+            # leave partial metadata behind, or the close path would refuse
+            # to release the session.
+            if ! wifi_session capture 8>&-; then
+                rm -f "$STATE/session-wifi" 2>/dev/null || true
+            fi
             boot_id > "$STATE/ui-session"
             startup_trace COEX_READY
             exec 6>&-
@@ -362,10 +439,10 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
                 provider_samples=0
             fi
         fi
-        # Open admission when the share surface is open (regardless of the
-        # keep-alive toggle) or when background reception is wanted. Without the
-        # foreground clause the session would prepare on open but never
-        # advertise because keep-alive is off by default.
+        # Open admission while the share surface is open or background
+        # reception is wanted. Since 1.1.11 the receive switch alone arms
+        # background admission, so with the switch on the session is fully
+        # resident: the legacy keep-alive toggle is no longer consulted.
         if { [ "$foreground" = open ] || [ "$receive_eligible" = 1 ]; } && [ "$provider_ready" = 1 ] && [ "$receive_samples" -ge 10 ];then
             if /system/bin/sh "$MODDIR/bin/receive-session.sh" ensure-ui 8>&-;then
                 [ "$receive_published" = 1 ] || startup_trace RECEIVE_HOST_READY
@@ -390,12 +467,23 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         # the transfer finishes.
         off_samples=$((off_samples+1))
         if [ "$off_samples" -ge 3 ] && [ -e "$STATE/ui-session" ]; then
-            if close_session; then provider_failures=0;provider_ready=0;receive_published=0
+            if close_session ${close_force:+force}; then
+                provider_failures=0;provider_ready=0;receive_published=0
+                close_failures=0;close_force=0
             else
                 rc=$?
-                if [ "$rc" = 10 ];then off_samples=0
-                elif [ "$rc" != 9 ]; then
-                    echo "UI close uncertain rc=$rc; no driver reload"; exit "$rc"
+                if [ "$rc" = 10 ] || [ "$rc" = 9 ];then
+                    off_samples=0;close_force=0
+                elif [ "${close_failures:-0}" -lt 2 ];then
+                    # A failed release can leave the provider half stopped.
+                    # Retry the full close twice before giving up: exiting
+                    # here strands the armed session (and the paused Wi-Fi)
+                    # until the next reboot, which is exactly the "receive
+                    # is off but AirDrop is still running" report.
+                    close_failures=$((close_failures+1));off_samples=0
+                    echo "UI close failed rc=$rc; retry ${close_failures}/2"
+                else
+                    echo "UI close failed rc=$rc three times; no driver reload"; exit "$rc"
                 fi
             fi
         fi

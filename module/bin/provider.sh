@@ -12,13 +12,18 @@ case "${1:-status}" in
         if echo "$records" | grep -q 'isFgsDelegate=true'; then echo foreground_delegate=yes; else echo foreground_delegate=no; fi
         ;;
     ensure|adopt)
+        # Re-enable a package left disabled by a previous release before any
+        # validation. Validation below may fail (an updated APK split, a
+        # native service that is momentarily absent); failing before the
+        # enable left the package stuck in disabled-user, the provider could
+        # never start again, and the device vanished from every iPhone's
+        # AirDrop list until the package was enabled by hand. Enabling an
+        # already enabled package would fire a PACKAGE_CHANGED broadcast,
+        # which restarts the provider process and tears down the AirDrop
+        # mDNS advertisement, so this stays guarded by package_disabled.
+        if package_disabled; then framework pm enable --user 0 "$PKG" >/dev/null; fi
         /system/bin/sh "$MODDIR/bin/app-check.sh" || exit 3
         framework service check "$SERVICE" | grep -q ': found' || { echo 'Native service absent'; exit 3; }
-        # The boot receiver disabled the component when the native service was
-        # absent. Re-enabling an already enabled component still fires a
-        # PACKAGE_CHANGED broadcast, which restarts the provider process and
-        # tears down the AirDrop mDNS advertisement, so only enable on demand.
-        if package_disabled; then framework pm enable --user 0 "$PKG" >/dev/null; fi
         if component_disabled; then framework pm enable --user 0 "$COMP" >/dev/null; fi
         trap 'framework cmd deviceidle tempwhitelist -r "$PKG" >/dev/null 2>&1 || true' EXIT
         records=$(active_services)

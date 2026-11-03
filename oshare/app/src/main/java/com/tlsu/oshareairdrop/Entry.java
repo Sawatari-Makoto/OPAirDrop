@@ -16,6 +16,8 @@ import android.util.Log;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -172,9 +174,10 @@ public final class Entry extends XposedModule {
                 try {
                     Object owner = outerInstance(chain.getThisObject(), fragment);
                     if (owner == null) return chain.proceed();
-                    long remaining = (deadline(owner, "f11660z") - System.currentTimeMillis()) / 1000;
+                    if (resetOnFreshTransfer(owner, "z", "f11660z")) renewOShareWindow(loader);
+                    long remaining = (deadline(owner, "z", "f11660z") - System.currentTimeMillis()) / 1000;
                     if (remaining < 1 && remaining >= -2 && recentTransfer()) {
-                        setDeadline(owner, "f11660z", System.currentTimeMillis() + 600000L);
+                        setDeadline(owner, System.currentTimeMillis() + 600000L, "z", "f11660z");
                         renewOShareWindow(loader);
                         log(Log.INFO, TAG, "oshare settings countdown renewed after transfer activity");
                     }
@@ -204,9 +207,10 @@ public final class Entry extends XposedModule {
                 try {
                     Object owner = outerInstance(chain.getThisObject(), service);
                     if (owner == null) return chain.proceed();
-                    long remaining = (deadline(owner, "f9789p") - System.currentTimeMillis()) / 1000;
+                    if (resetOnFreshTransfer(owner, "p", "f9789p")) renewOShareWindow(loader);
+                    long remaining = (deadline(owner, "p", "f9789p") - System.currentTimeMillis()) / 1000;
                     if (remaining < 1 && remaining >= -2 && recentTransfer()) {
-                        setDeadline(owner, "f9789p", System.currentTimeMillis() + 600000L);
+                        setDeadline(owner, System.currentTimeMillis() + 600000L, "p", "f9789p");
                         renewOShareWindow(loader);
                         log(Log.INFO, TAG, "oshare inline countdown renewed after transfer activity");
                     }
@@ -244,6 +248,39 @@ public final class Entry extends XposedModule {
         return elapsed >= 0 && elapsed < 600;
     }
 
+    /** Last transfer stamp already reacted to, per owner class. The per-second
+     *  countdown ticks double as the transfer poller: when the stamp produced
+     *  by ui-lifecycle.sh changes, the countdown is reset immediately instead
+     *  of waiting for the window to expire. */
+    private static final Map<Class<?>, Long> LAST_SEEN_TRANSFER = new ConcurrentHashMap<>();
+
+    /** Called from every per-second countdown tick. When a fresh transfer was
+     *  observed (the last_transfer property changed and is within the 10-minute
+     *  window) the countdown deadline is reset to the full window right away,
+     *  so the label visibly restarts at 10:00 the moment data moves. Returns
+     *  true when the deadline was reset, so the caller can also reschedule the
+     *  background alarm. */
+    private boolean resetOnFreshTransfer(Object owner, String... names) {
+        try {
+            String value = (String) Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class)
+                    .invoke(null, "debug.opairshare.last_transfer", "");
+            if (value == null || value.isEmpty()) return false;
+            long stamp = Long.parseLong(value.trim());
+            Long seen = LAST_SEEN_TRANSFER.get(owner.getClass());
+            if (seen != null && seen == stamp) return false;
+            LAST_SEEN_TRANSFER.put(owner.getClass(), stamp);
+            long now = System.currentTimeMillis();
+            if (now / 1000 - stamp >= 600) return false; // stale stamp, nothing to renew
+            if (deadline(owner, names) >= now + 600000L) return false; // already full
+            setDeadline(owner, now + 600000L, names);
+            log(Log.INFO, TAG, "oshare countdown reset by fresh transfer activity");
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /** Reschedules the OShare "everyone" timeout alarm and refreshes the
      *  stored deadline (OShareApplication.q() -> TimeoutManager.d()). */
     private void renewOShareWindow(ClassLoader loader) {
@@ -273,16 +310,56 @@ public final class Entry extends XposedModule {
         return null;
     }
 
-    private static long deadline(Object owner, String name) throws Exception {
-        Field field = owner.getClass().getDeclaredField(name);
-        field.setAccessible(true);
-        return field.getLong(owner);
+    /** Resolved deadline fields per owner class. Obfuscated field names differ
+     *  between OShare builds (f11660z vs z, f9789p vs p), so the field is
+     *  resolved once and reused. */
+    private static final Map<Class<?>, Field> DEADLINE_FIELDS = new ConcurrentHashMap<>();
+
+    /** Finds the deadline field on the owner: exact candidate names first
+     *  (current build, then legacy builds), then a scan for the unique long
+     *  instance field holding a plausible wall-clock timestamp. Returns null
+     *  when nothing matches; callers treat that as "no renewal possible". */
+    private static Field deadlineField(Object owner, String... names) {
+        Field cached = DEADLINE_FIELDS.get(owner.getClass());
+        if (cached != null) return cached;
+        for (String name : names) {
+            for (Class<?> c = owner.getClass(); c != null; c = c.getSuperclass()) {
+                try {
+                    Field f = c.getDeclaredField(name);
+                    f.setAccessible(true);
+                    DEADLINE_FIELDS.put(owner.getClass(), f);
+                    return f;
+                } catch (NoSuchFieldException ignored) { }
+            }
+        }
+        long now = System.currentTimeMillis();
+        Field match = null;
+        for (Class<?> c = owner.getClass(); c != null; c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (f.getType() != long.class
+                        || java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                try {
+                    f.setAccessible(true);
+                    long v = f.getLong(owner);
+                    if (v > now - 900_000L && v < now + 900_000L) {
+                        if (match != null) return null; // ambiguous, refuse to guess
+                        match = f;
+                    }
+                } catch (Throwable ignored) { }
+            }
+        }
+        if (match != null) DEADLINE_FIELDS.put(owner.getClass(), match);
+        return match;
     }
 
-    private static void setDeadline(Object owner, String name, long value) throws Exception {
-        Field field = owner.getClass().getDeclaredField(name);
-        field.setAccessible(true);
-        field.setLong(owner, value);
+    private static long deadline(Object owner, String... names) throws Exception {
+        Field field = deadlineField(owner, names);
+        return field == null ? Long.MIN_VALUE : field.getLong(owner);
+    }
+
+    private static void setDeadline(Object owner, long value, String... names) throws Exception {
+        Field field = deadlineField(owner, names);
+        if (field != null) field.setLong(owner, value);
     }
 
     /** While the settings/inline countdown is running, OShare formats

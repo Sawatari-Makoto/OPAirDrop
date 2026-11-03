@@ -84,54 +84,29 @@ function applyInsets(): void {
 }
 
 /**
- * The color the host paints the system bars with.
+ * Push the transparent bar color into the theme-color meta tag.
  *
- * The host tints the status bar and the gesture area from the
- * `<meta name="theme-color">` tag, but the value in the document is a static
- * approximation of the palette. On ColorOS 17 that approximation did not
- * match the surface the page actually paints, which left a visible strip of
- * a different color above the app and behind the gesture handle. Reading the
- * resolved custom property gives the exact color of the current theme, so
- * the bars blend into the page.
- *
- * The resolved value is normalised to a six-digit `#rrggbb` literal. The
- * palette stores the dark surface as `#000`; some native hosts hand the meta
- * value straight to an Android `Color.parseColor`, which rejects the
- * three-digit shorthand and then falls back to the host default — the exact
- * colour band that breaks the immersion.
- */
-export function surfaceColor(): string {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue('--m-color-surface')
-    .trim();
-  const value = normalizeHex(raw);
-  return value || (document.documentElement.classList.contains('m-theme-dark') ? '#000000' : '#f7f7f7');
-}
-
-/** Expand `#rgb` to `#rrggbb`, otherwise return the input unchanged (or ''). */
-function normalizeHex(color: string): string {
-  const hex = color.replace(/^#/, '').toLowerCase();
-  if (/^[0-9a-f]{3}$/.test(hex)) {
-    return `#${hex.split('').map((c) => c + c).join('')}`;
-  }
-  return /^[0-9a-f]{6}$/.test(hex) ? `#${hex}` : '';
-}
-
-/**
- * Push the resolved surface color into the theme-color meta tag.
+ * The WebView is laid out edge to edge, so the page content already runs
+ * underneath the status bar and the gesture area; the host just paints both
+ * bars opaque with the theme-color value, hiding whatever is beneath. The
+ * user asked for fully transparent bars, so an 8-digit `#00000000` literal
+ * is written instead (Color.parseColor accepts it; three-digit shorthand is
+ * what some hosts reject). The page keeps its own surface color behind the
+ * scroll content, so an idle screen still blends seamlessly - only scrolled
+ * content now shows through the bars.
  *
  * The value is only written when it actually changes, for the same reason
  * the insets are only written on change.
  */
+const TRANSPARENT_BAR_COLOR = '#00000000';
 let appliedThemeColor = '';
 
 export function syncThemeColor(): void {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (!meta) return;
-  const color = surfaceColor();
-  if (color === appliedThemeColor) return;
-  appliedThemeColor = color;
-  meta.setAttribute('content', color);
+  if (appliedThemeColor === TRANSPARENT_BAR_COLOR) return;
+  appliedThemeColor = TRANSPARENT_BAR_COLOR;
+  meta.setAttribute('content', TRANSPARENT_BAR_COLOR);
 }
 
 /**

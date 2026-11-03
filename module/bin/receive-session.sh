@@ -24,16 +24,15 @@ receive_wanted() {
         coex_available
 }
 
-# Background (always-on) reception only. The session still arms whenever the
-# share surface is open regardless of this flag; this only governs the
-# resident/keep-alive path that holds the radio armed with no UI. It is OFF by
-# default so the AWDL session is not held 24/7, and the user opts in with the
-# "一加互传 常驻" (keep-alive) toggle.
+# Background reception is owned by the OShare receive switch itself since
+# 1.1.11: everyone(1) and contacts-only(2) arm the session, receive-off(0)
+# releases it. The legacy keep-alive toggle is no longer consulted; its
+# subcommands are kept only for backward compatibility.
 airdrop_keepalive() {
     [ -e "$STATE/airdrop-keepalive" ]
 }
 receive_background() {
-    receive_wanted && airdrop_keepalive
+    receive_wanted
 }
 
 case "${1:-wanted}" in
