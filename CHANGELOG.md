@@ -1,5 +1,23 @@
 # OPAirDrop 更新日志
 
+## 1.1.14
+
+- 修复临时 root 设备启动失败（rc=255）后彻底放弃的问题。开机启动重试此前上限
+  40 次（约 10 分钟），用尽后直接放弃——临时 root 设备 root 授权晚、PackageManager
+  扫描慢，整个窗口都会撞在同一个「系统未就绪」的瞬时失败上。现在重试用尽后不
+  放弃，节奏降为 15s × 40 → 60s × 10 → 300s 无限续跑；sleep 挂起的进程不占 CPU，
+  对一直健康的设备零影响，fatal 失败（驱动回滚）3 次即锁定的原语义保留。
+- 加固 callback-bootstrap.sh：`set -e` 下多处无保护命令（`provider.sh ensure`、
+  `provider.sh release`、`service call` 停止原生服务、`pidof`、`callback.sh
+  restore`、callback-off 快速路径中的 `app-check.sh`）在早期 boot 框架服务尚未
+  发布时会瞬时失败并中止整个启动。现在全部改为显式处理：provider ensure 带
+  3 次重试，release/停止调用/pidof 失败仅记日志继续；唯一保留的硬失败门禁是
+  「发现补丁确实挂载不上」（exit 6）与「bootstrap 期间有传输正在进行」（exit 9）。
+- 观测性补全：WebUI「导出日志」现在包含 server.log（mosey_server stderr，最后
+  200 行）——这正是定位启动失败最关键的文件；「查看日志」也追加 server.log 尾部。
+- 日志轮转：server.log 与 supervisor.log 超过 512 KiB 时在唯一追加点（启动
+  native/监督器时）轮转保留一代，无后台定时器、事件间零开销。
+
 ## 1.1.13
 
 - 修复 provider 释放后 mosey 卡在禁用状态的问题。会话释放时模块会把 provider

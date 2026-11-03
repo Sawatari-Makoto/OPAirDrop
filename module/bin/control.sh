@@ -67,6 +67,12 @@ start_failure_handler() {
 start_supervisor() {
     owner=$(cat "$STATE/supervisor.pid" 2>/dev/null || true)
     if ! pid_is "$owner" 'ui-lifecycle.sh'; then
+        # Size-based rotation at the only point the log is opened for append:
+        # no daemon, no timer, zero cost between events. Keep one generation.
+        if [ -f "$STATE/supervisor.log" ] &&
+           [ "$(wc -c < "$STATE/supervisor.log" 2>/dev/null || echo 0)" -gt 524288 ]; then
+            mv -f "$STATE/supervisor.log" "$STATE/supervisor.log.1"
+        fi
         printf '\nSUPERVISOR_START boot=%s time=%s\n' "$(boot_id)" "$(date '+%Y-%m-%dT%H:%M:%S%z')" >> "$STATE/supervisor.log"
         /system/bin/sh "$MODDIR/bin/ui-lifecycle.sh" >> "$STATE/supervisor.log" 2>&1 < /dev/null 9>&- &
         owner=$!
@@ -163,6 +169,12 @@ passive_ui_baseline() {
 }
 start_native() {
     touch /apex/apex-info-list.xml
+    # Size-based rotation at the only point the log is opened for append: no
+    # daemon, no timer, zero cost between events. Keep one generation.
+    if [ -f "$STATE/server.log" ] &&
+       [ "$(wc -c < "$STATE/server.log" 2>/dev/null || echo 0)" -gt 524288 ]; then
+        mv -f "$STATE/server.log" "$STATE/server.log.1"
+    fi
     OPAIRSHARE_ENABLE_HOPPING=1 OPAIRSHARE_SOCIAL_CHANNELS=149 \
         OPAIRSHARE_CONFIG_TRACE="$STATE/config-trace.log" \
         OPAIRSHARE_CHANNEL_PROFILE=freq20 \

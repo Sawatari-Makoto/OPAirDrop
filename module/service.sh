@@ -55,15 +55,30 @@ root_seen=0
 attempt=0
 max_attempts=${OPAIRSHARE_BOOT_MAX_ATTEMPTS:-40}
 retry_sleep=${OPAIRSHARE_BOOT_RETRY_SLEEP:-15}
+# After the bounded window the loop keeps running at a much lower cadence
+# instead of giving up: a sleeping shell costs no CPU, and transient early-boot
+# failures (PackageManager scan races, framework services not yet published)
+# often resolve minutes later on temporary-root devices. The cadence decays
+# 15s -> 60s -> 300s so a device that never becomes healthy stays quiet.
+slow_sleep=${OPAIRSHARE_BOOT_RETRY_SLOW_SLEEP:-60}
+slow_attempts=${OPAIRSHARE_BOOT_RETRY_SLOW_ATTEMPTS:-10}
+idle_sleep=${OPAIRSHARE_BOOT_RETRY_IDLE_SLEEP:-300}
 fatal_attempts=0
-while [ "$attempt" -lt "$max_attempts" ]; do
+while :; do
+    if [ "$attempt" -lt "$max_attempts" ]; then
+        pause=$retry_sleep
+    elif [ "$attempt" -lt "$((max_attempts+slow_attempts))" ]; then
+        pause=$slow_sleep
+    else
+        pause=$idle_sleep
+    fi
     attempt=$((attempt+1))
     if [ "$(id -u)" != "0" ]; then
         # No root yet (temporary-root device before escalation). Keep auto-start
         # armed and wait; do NOT disable. If the user escalates within this
         # window, the next iteration will pick it up and start automatically.
-        echo "Root not available yet (attempt $attempt/$max_attempts); deferring start" > "$STATE/boot-start.log"
-        sleep "$retry_sleep"
+        echo "Root not available yet (attempt $attempt); deferring start" > "$STATE/boot-start.log"
+        sleep "$pause"
         continue
     fi
     root_seen=1
@@ -79,16 +94,16 @@ while [ "$attempt" -lt "$max_attempts" ]; do
     # must not be treated as fatal.
     if grep -q 'RECOVERABLE_START_FAILURE' "$STATE/boot-start.log" 2>/dev/null; then
         fatal_attempts=0
-        echo "Recoverable start failure (rc=$start_rc) on attempt $attempt; retrying" >> "$STATE/boot-start.log"
-        sleep "$retry_sleep"
+        echo "Recoverable start failure (rc=$start_rc) on attempt $attempt; retrying in ${pause}s" >> "$STATE/boot-start.log"
+        sleep "$pause"
         continue
     fi
     # The provider was not registered yet (early cold boot). Nothing was
     # swapped and nothing was rolled back, so the start is simply retried.
     if [ "$start_rc" = 12 ]; then
         fatal_attempts=0
-        echo "Provider not ready (rc=12) on attempt $attempt; retrying" >> "$STATE/boot-start.log"
-        sleep "$retry_sleep"
+        echo "Provider not ready (rc=12) on attempt $attempt; retrying in ${pause}s" >> "$STATE/boot-start.log"
+        sleep "$pause"
         continue
     fi
     # Fatal: the drivers were rolled back to the factory build. Retry a couple
@@ -97,7 +112,7 @@ while [ "$attempt" -lt "$max_attempts" ]; do
     fatal_attempts=$((fatal_attempts+1))
     echo "Start failed rc=$start_rc (fatal $fatal_attempts) on attempt $attempt" >> "$STATE/boot-start.log"
     [ "$fatal_attempts" -ge 3 ] && break
-    sleep "$retry_sleep"
+    sleep "$pause"
 done
 if [ "$root_seen" = "1" ] && [ "$fatal_attempts" -ge 3 ]; then
     touch "$STATE/disabled"

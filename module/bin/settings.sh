@@ -234,6 +234,10 @@ case "${1:-status}" in
                 printf '\n[%s]\n' "$name"
                 [ ! -r "$STATE/$name" ] || tail -n 120 "$STATE/$name"
             done
+            # mosey_server stderr is the single most important file when a
+            # start fails (rc=255 diagnostics); it must ship with the export.
+            printf '\n[server.log (mosey_server stderr, last 200 lines)]\n'
+            [ ! -r "$STATE/server.log" ] || tail -n 200 "$STATE/server.log"
         } > "$temp"
         cp "$temp" "$target"
         printf '{"path":';json_string "$target";printf '}\n'
@@ -244,6 +248,8 @@ case "${1:-status}" in
             printf '\n[%s]\n' "$name"
             [ ! -r "$STATE/$name" ] || tail -n 45 "$STATE/$name"
         done
+        printf '\n[server.log (last 45 lines)]\n'
+        [ ! -r "$STATE/server.log" ] || tail -n 45 "$STATE/server.log"
         ;;
     apply)
         [ "$#" = 5 ] || exit 2
