@@ -49,6 +49,9 @@ public final class OShareDexResolver {
         vendor(wrapper, "setState", "setState", "void", "java.lang.Object");
         vendor(wrapper, "setProgress", "setProgress", "void", "int");
         vendor(wrapper, "setTotal", "setTotalNum", "void", "int");
+        // The "与 iPhone 互传" page keeps only vendor-800 (Apple) devices in its
+        // callback, so injected devices must carry the iOS vendor to be listed.
+        vendor(wrapper, "setVender", "setVender", "void", "int");
         MethodData stateSetter = named("device.setState");
         List<String> enums = stateSetter.getInvokes().stream()
                 .filter(m -> m.getName().equals("setState") && vendorDevice(m.getClassName()))

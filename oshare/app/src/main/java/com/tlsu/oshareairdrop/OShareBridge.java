@@ -28,6 +28,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class OShareBridge {
     private static final String TAG = "OShareAirDrop";
     private static final String PREFIX = "airdrop:";
+    /** OShare vendor id the host app uses for Apple/iOS devices; the
+     *  "与 iPhone 互传" page drops every other vendor from its device list. */
+    private static final int IOS_VENDOR = 800;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Map<String, Object> DEVICES = new ConcurrentHashMap<>();
     private static final Map<String, String> PHASES = new ConcurrentHashMap<>();
@@ -435,6 +438,7 @@ public final class OShareBridge {
                 ONLINE.add(key);
                 Object device = DEVICES.get(key);
                 if (device == null) device = symbols.deviceConstructor.newInstance();
+                symbols.invoke("device.setVender", device, IOS_VENDOR);
                 Context host = HostContext.get();
                 NAMES.put(key, event.optString("name", "Apple 设备"));
                 OShareAppearance.apply(host, device, event, symbols);

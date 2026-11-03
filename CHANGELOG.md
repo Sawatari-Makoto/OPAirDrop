@@ -1,5 +1,14 @@
 # OPAirDrop 更新日志
 
+## 1.1.16
+
+- 「与 iPhone 互传」页面接入 AirDrop：此前在该页面始终看不到 iPhone 设备。
+  反编译互传 App 确认根因——该页面（IOSShareActivity，iOS 模式的 ShareActivity）
+  的设备列表回调只保留 vender == 800（Apple 厂商 ID）的设备，而模块注入的
+  AirDrop 设备 vender 默认为 0，在进入列表前就被过滤。现在注入设备统一写入
+  vender 800，设备可正常出现在「与 iPhone 互传」列表并按 iOS 样式渲染；
+  普通分享面板行为不变。
+
 ## 1.1.15
 
 - 监督循环省电：`cmd wifi status`（每次 binder 往返 + app_process fork）此前

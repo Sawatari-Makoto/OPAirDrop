@@ -35,7 +35,7 @@ public final class OShareSymbols implements OShareAppearance.DeviceAccess {
         // Stable RecyclerView API; its declaring class can itself be obfuscated.
         notifyAdapters = type("adapter").getMethod("notifyDataSetChanged");
         for (String role : new String[]{"key", "state", "setName", "setKey", "setWifiMac", "setVirtual",
-                "setFoundTime", "setState", "setProgress", "setTotal", "setType", "icon", "setIcon"})
+                "setFoundTime", "setState", "setProgress", "setTotal", "setType", "setVender", "icon", "setIcon"})
             method("device." + role);
         for (String role : new String[]{"adapter.bind", "adapter.label", "holder.image", "manager.list",
                 "manager.get", "manager.instance", "manager.refresh", "service.send", "service.cancel",
