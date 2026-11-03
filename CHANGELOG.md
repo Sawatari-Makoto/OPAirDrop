@@ -1,5 +1,24 @@
 # OPAirDrop 更新日志
 
+## 1.1.15
+
+- 监督循环省电：`cmd wifi status`（每次 binder 往返 + app_process fork）此前
+  每秒调用一次，24 小时约 8.6 万次，是常驻监督器最大的清醒开销。现在按 3 秒
+  节流复用分类结果（`OPAIRSHARE_WIFI_POLL_INTERVAL` 可调），首次必读，coex
+  会话 prepare/restore 等路径仍直读。Wi-Fi 状态变化属秒级事件，3 秒复用不影响
+  任何切换判定；循环其余成本（mosey0 计数器为 sysfs 读取）不变。
+- 监督器看门狗：监督器 exit 6/8（原生服务丢失、会话恢复失败）后此前无人拉起，
+  功能静默失效到下次重启。现在开机服务启动成功后常驻为看门狗，每 60 秒检查
+  一次监督器存活（纯 sleep，无 CPU 开销），死亡即通过同 boot 重试路径重新拉起
+  ——补丁驱动保持在位，只重启原生服务与监督器；传输进行中重试会以 rc=9 退出，
+  属良性，下轮自动重试。模块被禁用/移除或跨 boot 后看门狗自动退出。
+- 驱动释放签名去重：`busy=0 fault=0 … accepting=0` / `used=0 armed=0 …` 两处
+  释放判定签名散落在 close 路径、设置门禁与 coex 探测共 5 处，收敛为
+  common.sh 的 `driver_radio_idle` / `driver_rx_filter_idle`，语义不变。
+- OShare 侧 `ShareModeRuntime` 的 `SystemProperties.get` 反射查找缓存为静态
+  常量——该方法在每秒倒计时 tick 与每个 hook 中高频调用，此前每次都重复
+  `Class.forName`。
+
 ## 1.1.14
 
 - 修复临时 root 设备启动失败（rc=255）后彻底放弃的问题。开机启动重试此前上限

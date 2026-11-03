@@ -138,7 +138,7 @@ idle() {
     if [ -e "$P/opairshare_channel_state" ];then
         [ "$(read_p opairshare_bridge_pending)" = 0 ] &&
         grep -q 'accepting=0 vdev=255 freq=0' "$P/opairshare_channel_state" &&
-        grep -q '^used=0 armed=0 pending=0 active=0 fault=0' "$P/opairshare_awdl_rx_mac_filter" ||
+        driver_rx_filter_idle ||
             fail '无线会话尚未完全释放，设置未修改。'
     fi
 }

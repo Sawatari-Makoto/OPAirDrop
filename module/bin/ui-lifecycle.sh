@@ -114,8 +114,7 @@ close_session() {
     echo "$reply" | grep -q fffffff && return 6
     P=/sys/module/qca_cld3_peach_v2/parameters
     [ "$(cat "$P/opairshare_bridge_pending")" = 0 ] || return 7
-    grep -q 'busy=0 fault=0 error=0 accepting=0 vdev=255 freq=0' "$P/opairshare_channel_state" || return 7
-    grep -q 'used=0 armed=0 pending=0 active=0 fault=0' "$P/opairshare_awdl_rx_mac_filter" || return 7
+    driver_radio_idle || return 7
     if [ -e "$STATE/session-wifi" ]; then wifi_session restore || return 8; fi
     /system/bin/sh "$MODDIR/bin/coex-session.sh" restore 8>&- || return 8
     /system/bin/sh "$MODDIR/bin/receive-session.sh" release-host 8>&- || return 8
@@ -123,7 +122,15 @@ close_session() {
     echo 'UI_CLOSED_RADIO_RELEASED_DRIVER_RETAINED'
 }
 
-# Serialize connection changes with settings and sharing-mode transitions.
+# The framework Wi-Fi status read (`cmd wifi status`) is a binder round-trip
+# plus an app_process fork on every loop tick, which made the resident
+# supervisor one of the biggest idle-awake costs of the module. Association
+# state changes on the order of seconds, so the classification is refreshed
+# every OPAIRSHARE_WIFI_POLL_INTERVAL ticks and reused in between; the first
+# tick always reads fresh and every other consumer (coex-session prepare,
+# restore paths) still reads directly.
+wifi_poll_count=0
+wifi_poll_cached=0
 monitor_coex_wifi() {
     coex_recover=0
     exec 6> "$STATE/settings.flock"
@@ -131,7 +138,13 @@ monitor_coex_wifi() {
         exec 6>&-
         return 1
     fi
-    if coex_wifi_eligible;then
+    wifi_poll_count=$((wifi_poll_count+1))
+    if [ "$wifi_poll_cached" = 0 ] ||
+       [ "$wifi_poll_count" -ge "${OPAIRSHARE_WIFI_POLL_INTERVAL:-3}" ];then
+        wifi_poll_count=0
+        if coex_wifi_eligible;then wifi_poll_cached=1;else wifi_poll_cached=0;fi
+    fi
+    if [ "$wifi_poll_cached" = 1 ];then
         if [ -e "$STATE/coex-wifi-blocked" ];then
             rm -f "$STATE/coex-wifi-blocked" || { exec 6>&-;return 1; }
             echo "COEX_WIFI_ELIGIBLE class=$coex_wifi_class frequency=${coex_wifi_frequency:-none}"

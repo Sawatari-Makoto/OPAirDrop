@@ -11,7 +11,7 @@ knobs='passthru_sta_coexist passthru_awdl_allow_concurrent passthru_mgmt_home_ch
 idle() {
     [ "$(cat "$P/opairshare_bridge_pending")" = 0 ] &&
     grep -q 'accepting=0 vdev=255 freq=0' "$P/opairshare_channel_state" &&
-    grep -q '^used=0 armed=0 pending=0 active=0 fault=0' "$P/opairshare_awdl_rx_mac_filter"
+    driver_rx_filter_idle
 }
 # Every band inherits the selected TX profile, exactly as same149.
 # Each session retains the user-selected performance profile.

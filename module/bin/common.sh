@@ -346,6 +346,22 @@ owned_modules_match() {
     done
     return 0
 }
+# True while the patched AWDL rx filter reports a fully released session.
+# Shared by the close path, the settings gate and the coex session probe so
+# the expected-release signature exists in exactly one place.
+driver_rx_filter_idle() {
+    grep -q '^used=0 armed=0 pending=0 active=0 fault=0' \
+        /sys/module/qca_cld3_peach_v2/parameters/opairshare_awdl_rx_mac_filter
+}
+
+# True while BOTH driver state files report a fully released session. This is
+# the predicate the explicit close path gates on before it restores Wi-Fi.
+driver_radio_idle() {
+    grep -q 'busy=0 fault=0 error=0 accepting=0 vdev=255 freq=0' \
+        /sys/module/qca_cld3_peach_v2/parameters/opairshare_channel_state || return 1
+    driver_rx_filter_idle
+}
+
 # Full compatibility decision used by the supervisor and the control script.
 # Prints a reason when the stack is not usable.
 driver_compatible() {

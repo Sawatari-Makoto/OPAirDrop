@@ -163,8 +163,7 @@ passive_ui_baseline() {
     echo "$reply" | grep -q fffffff && return 6
     P=/sys/module/qca_cld3_peach_v2/parameters
     [ "$(cat "$P/opairshare_bridge_pending")" = 0 ] || return 7
-    grep -q 'busy=0 fault=0 error=0 accepting=0 vdev=255 freq=0' "$P/opairshare_channel_state" || return 7
-    grep -q 'used=0 armed=0 pending=0 active=0 fault=0' "$P/opairshare_awdl_rx_mac_filter" || return 7
+    driver_radio_idle || return 7
     restore_session_wifi || return 8
 }
 start_native() {

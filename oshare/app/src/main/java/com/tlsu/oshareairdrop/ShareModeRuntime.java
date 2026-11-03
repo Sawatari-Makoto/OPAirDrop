@@ -8,6 +8,19 @@ import android.util.Log;
 final class ShareModeRuntime {
     private static ShareMode fallback;
 
+    /** SystemProperties.get resolved once. `current()` runs on per-second
+     *  countdown ticks and every hook, so the per-call Class.forName lookup
+     *  was pure repeated cost. */
+    private static final java.lang.reflect.Method PROP_GET;
+    static {
+        java.lang.reflect.Method method;
+        try {
+            method = Class.forName("android.os.SystemProperties")
+                    .getMethod("get", String.class, String.class);
+        } catch (Throwable failure) { method = null; }
+        PROP_GET = method;
+    }
+
     static synchronized ShareMode initialize(Context context) {
         if (fallback == null) {
             String value = property(ShareMode.PROPERTY);
@@ -20,8 +33,8 @@ final class ShareModeRuntime {
     }
 
     private static String property(String key) {
-        try { return (String) Class.forName("android.os.SystemProperties")
-                .getMethod("get", String.class, String.class).invoke(null, key, ""); }
+        if (PROP_GET == null) return "";
+        try { return (String) PROP_GET.invoke(null, key, ""); }
         catch (Exception failure) { return ""; }
     }
 

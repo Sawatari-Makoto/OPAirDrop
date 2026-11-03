@@ -87,7 +87,27 @@ while :; do
     if [ "$start_rc" = 0 ]; then
         rm -f "$STATE/disabled"
         log -t opairshare-quickshare 'r24 resident driver, transfer callbacks and UI lifecycle ready'
-        exit 0
+        # Watchdog. A supervisor exit 6/8 (native server lost, session restore
+        # failed) used to leave the module silently dead until the next boot.
+        # A sleeping shell costs no CPU, so the boot service stays resident and
+        # re-runs `control.sh start` when the supervisor dies: the same-boot
+        # retry path keeps the patched drivers in place and only restarts the
+        # native server and the supervisor. A transfer in progress makes the
+        # retry exit 9; that is benign and simply retries on the next tick.
+        watchdog_interval=${OPAIRSHARE_WATCHDOG_INTERVAL:-60}
+        while :; do
+            sleep "$watchdog_interval"
+            # An explicit opt-out (module disabled/removed) ends the watchdog;
+            # a new boot has its own service.sh instance, so exit on boot rollover.
+            if [ -e "$STATE/disabled" ] || [ -e "$MODDIR/disable" ] || [ -e "$MODDIR/remove" ]; then
+                exit 0
+            fi
+            if ! same_boot "$STATE/stack-boot"; then exit 0; fi
+            sup=$(cat "$STATE/supervisor.pid" 2>/dev/null || true)
+            if pid_is "$sup" 'ui-lifecycle.sh'; then continue; fi
+            echo "Supervisor not running (pid=$sup); watchdog restart" >> "$STATE/boot-start.log"
+            /system/bin/sh "$MODDIR/bin/control.sh" start >> "$STATE/boot-start.log" 2>&1 || true
+        done
     fi
     # A recoverable failure kept the patched stack in place: the retry only
     # has to restart the native server and the provider, so it is cheap and
