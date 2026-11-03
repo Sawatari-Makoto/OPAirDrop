@@ -2,7 +2,7 @@
 import {ref,computed,watch,onMounted,onBeforeUnmount} from 'vue';
 import {MiuixSnackbarHost,MiuixScrollArea,MiuixIcon,MiuixNavigationBar,MiuixTopAppBar,MiuixIconButton,MiuixButton,MiuixCard,MiuixSmallTitle,MiuixText,MiuixInput,MiuixBasicComponent,MiuixRadioButtonPreference,showSnackbar} from 'miuix-vue';
 import {ScreenMirroring,Settings} from 'miuix-vue/icons';
-import {API,type Status,type HistoryData,type SpeedRecord,type ShareMode} from './api';
+import {API,type Status,type HistoryData,type SpeedRecord,type ShareMode,type Toggle} from './api';
 import {setupImmersiveLayout,setMeasuredInsets,syncThemeColor} from './immersive';
 import AboutView from './components/AboutView.vue';
 import LicensesView from './components/LicensesView.vue';
@@ -39,7 +39,19 @@ function speed(value=0){return (value/1000000).toFixed(2);}
 function peak(value:number,average:number){return value<average?'≥ '+speed(average):speed(value);}
 function size(value=0){return value>=1e9?(value/1e9).toFixed(2)+' GB':value>=1e6?(value/1e6).toFixed(2)+' MB':(value/1000).toFixed(1)+' KB';}
 function time(epoch:number){return new Date(epoch*1000).toLocaleString('zh-CN',{hour12:false});}
-function acceptStatus(value:Status){state.value=value;lastStatusAt=Date.now();updated.value=new Date(lastStatusAt).toLocaleTimeString('zh-CN',{hour12:false});setMeasuredInsets(value.inset_top??0,value.inset_bottom??0);}
+function acceptStatus(value:Status){state.value=value;lastStatusAt=Date.now();updated.value=new Date(lastStatusAt).toLocaleTimeString('zh-CN',{hour12:false});setMeasuredInsets(value.inset_top??0,value.inset_bottom??0);applyBackendTheme(value.night_mode);}
+// Android WebView never re-evaluates prefers-color-scheme after page load, so
+// matchMedia listeners stay silent across system dark-mode switches. The
+// backend reads the real system night mode into every status poll; toggling
+// the miuix theme class here also drives applyThemeColor() through the
+// existing MutationObserver on <html> class changes, keeping the status bar
+// and the gesture area in step with the page palette.
+function applyBackendTheme(night?:Toggle){
+ if(!night)return;
+ const root=document.documentElement;
+ const want=night==='on';
+ if(root.classList.contains('m-theme-dark')!==want)root.classList.toggle('m-theme-dark',want);
+}
 // Keep the native status/navigation bar color in step with the app surface so
 // no white strip appears above/below the WebUI. The host tints those bars from
 // the <meta name="theme-color"> tag, so it is mirrored from the active theme.

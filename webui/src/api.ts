@@ -4,7 +4,7 @@ export type Profile='fast'|'vht'|'on'|'off';
 export type ShareMode='quickshare'|'oshare'|'both';
 const shareModes:ShareMode[]=['quickshare','oshare','both'];
 export interface Config {coexist:Toggle;scope:Scope;profile:Profile;autostart:Toggle}
-export interface Status extends Config {share_mode:ShareMode;share_mode_active:ShareMode;coexist_requested?:Toggle;coexist_reason?:string;version:string;airdrop_name:string;airdrop_name_default:string;airdrop_name_custom:string;receive_directory:string;ready:Toggle;editable:Toggle;session:Toggle;frequency:string;channel:string;network:string;radio:string;matcher:string;pending:string;phy:string;mcs:string;nss:string;batch:string;collect:string;callback:Toggle;awdl:string;quickshare:string;oshare:string;inset_top?:number;inset_bottom?:number}
+export interface Status extends Config {share_mode:ShareMode;share_mode_active:ShareMode;coexist_requested?:Toggle;coexist_reason?:string;version:string;airdrop_name:string;airdrop_name_default:string;airdrop_name_custom:string;receive_directory:string;ready:Toggle;editable:Toggle;session:Toggle;frequency:string;channel:string;network:string;radio:string;matcher:string;pending:string;phy:string;mcs:string;nss:string;batch:string;collect:string;callback:Toggle;awdl:string;night_mode?:Toggle;quickshare:string;oshare:string;inset_top?:number;inset_bottom?:number}
 const allowed={coexist:['on'],scope:['auto'],profile:['fast','vht','on','off'],autostart:['on','off']};
 export class ApiError extends Error {constructor(public code:number,message:string){super(message)}}
 const command='/system/bin/sh /data/adb/modules/opairshare/bin/settings.sh';

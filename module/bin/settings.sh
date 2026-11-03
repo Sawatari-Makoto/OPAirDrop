@@ -90,10 +90,15 @@ status() {
     [ -n "$inset_bottom" ] || inset_bottom=0
     awdl=stopped
     if [ -r "$P/opairshare_channel_state" ] && [ -n "$(pidof mosey_server 2>/dev/null || true)" ];then awdl=running;fi
+    # WebView keeps its matchMedia result from page load, so the backend reports
+    # the current system dark mode and the page re-themes on each poll.
+    night_mode=off
+    if /system/bin/cmd uimode night 2>/dev/null | grep -q 'yes';then night_mode=on;fi
     json_object \
         share_mode "$(saved_share_mode)" share_mode_active "$(active_share_mode)" \
         receive_directory "$(decode_name_hex "$(read_receive_directory_hex)")" \
         awdl "$awdl" \
+        night_mode "$night_mode" \
         quickshare "$quickshare" \
         oshare "$oshare" \
         version "$version" \

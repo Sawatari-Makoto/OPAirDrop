@@ -96,30 +96,14 @@ close_session() {
     /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&- || return 8
     # Inspect App transfer state before releasing the original provider.
     /system/bin/sh "$MODDIR/bin/transfer-idle.sh" 8>&- || return 9
-    # The idle policy releases the session on its own. In that case the app
-    # is only suspended, not disabled, so the user can still open Quick
-    # Share by hand while the radio is down.
-    idle_release=0
+    # AirDrop reception ownership now follows the OShare receive switch
+    # (oshare_state) directly, so a close here is always an explicit stop:
+    # release the provider fully and let the radio return to power saving
+    # until the switch or a share surface re-arms the session.
     if [ "${1:-normal}" != recover ];then
         [ "$(foreground_state)" = closed ] || return 10
-        keepalive_state=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" keepalive 8>&-)
-        if [ "$keepalive_state" = on ];then
-            # Resident mode: the wireless session stays armed even though the
-            # share surface is gone, so AirDrop discovery keeps working and
-            # the radio is not paid for twice.
-            return 10
-        fi
-        # On-demand mode: the radio is released once the share surface is
-        # gone, but the host application is only suspended rather than
-        # disabled, so Quick Share can still be opened by hand and the next
-        # share surface brings the session straight back.
-        idle_release=1
     fi
-    if [ "$idle_release" = 1 ];then
-        /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" suspend 8>&- || return 6
-    else
-        /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release 8>&- || return 6
-    fi
+    /system/bin/timeout -k 2 35 /system/bin/sh "$MODDIR/bin/provider.sh" release 8>&- || return 6
     [ -z "$(pidof "$PKG" || true)" ] || return 6
     reply=$(framework timeout 15 service call "$SERVICE" 2 i32 1 i32 4) || return 6
     printf '%s\n' "$reply" > "$STATE/ui-native-stop.txt"
@@ -191,13 +175,17 @@ provider_failures=0
 provider_ready=0
 receive_published=0
 receive_samples=10
-idle_sleeping=0
 foreground_was=unknown
 # Number of consecutive closed readings required before the receiver gate is
 # closed. The share surface is judged from an activity dump, and one bad
 # dump must not be able to remove this device from the iPhone AirDrop list.
 FOREGROUND_CLOSE_STREAK=3
 foreground_closed_streak=0
+# AirDrop payload traffic runs on the AWDL data interface (mosey0). Sampling
+# its byte counters lets the Xposed layer know a transfer happened recently,
+# which is what renews the OShare "everyone" 10-minute countdown.
+last_tx=
+last_rx=
 while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
       [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ]; do
     kernel_matches || { echo 'Driver identity changed; no automatic reload'; exit 6; }
@@ -243,8 +231,19 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
             fi
             ;;
     esac
+    # Sample the AWDL data interface byte counters. Any change means AirDrop
+    # payload moved recently, which the Xposed layer reads to renew the
+    # OShare "everyone" 10-minute countdown (transfer activity resets it).
+    tx_now=$(cat /sys/class/net/mosey0/statistics/tx_bytes 2>/dev/null || true)
+    rx_now=$(cat /sys/class/net/mosey0/statistics/rx_bytes 2>/dev/null || true)
+    if [ -n "$tx_now" ] && [ -n "$rx_now" ];then
+        if [ -n "$last_tx" ] && { [ "$tx_now" != "$last_tx" ] || [ "$rx_now" != "$last_rx" ]; };then
+            /system/bin/setprop debug.opairshare.last_transfer "$(date +%s)" 2>/dev/null || true
+        fi
+        last_tx=$tx_now
+        last_rx=$rx_now
+    fi
     receive_requested=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" wanted 8>&-)
-    keepalive_on=$(/system/bin/sh "$MODDIR/bin/receive-session.sh" keepalive 8>&-)
     receive_eligible=0
     receive_samples=$((receive_samples+1))
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
@@ -260,29 +259,12 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     else
         foreground_was=$foreground
     fi
-    # Background reception is owned by the module, but only while the user is
-    # still expected to use it. After the idle period the radio is released so
-    # the device stops paying for an armed AWDL session all day; the next
-    # share surface brings it straight back.
-    if [ "$receive_eligible" = 1 ] && [ "$foreground" != open ] && [ "$keepalive_on" != on ];then
-        # The transfer state is only inspected once the idle period has
-        # actually passed, so the supervisor does not run a service dump on
-        # every sample.
-        if [ "$(idle_may_sleep)" = 0 ];then
-            if idle_transfer_active;then
-                idle_touch
-            else
-                receive_eligible=0
-                # Report the transition once, not on every sample.
-                if [ "$idle_sleeping" != 1 ];then
-                    idle_sleeping=1
-                    echo "IDLE_SLEEP after $(idle_elapsed)s without activity"
-                fi
-            fi
-        fi
-    else
-        idle_sleeping=0
-    fi
+    # Background reception is owned by the receive switch itself. When the
+    # user sets the OShare receive switch to everyone(1) or contacts-only(2)
+    # the session stays armed for as long as the switch says so - no idle
+    # timeout applies, because the switch is the explicit, persistent user
+    # intent (the 10-minute "everyone" window falls back to receive-off on
+    # its own, which closes the session through the not-wanted path below).
     # Admission is opened while the share surface is open OR background
     # reception is wanted. It must be closed under exactly the same
     # condition: clearing while the share surface is still visible closes
@@ -312,13 +294,12 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     if [ "$foreground" = unknown ] && [ "$receive_eligible" != 1 ];then
         off_samples=0;echo 'Cannot read foreground UI; retain current session';sleep 2;continue
     fi
-    # Arm the session when the share surface is open, or when background
-    # reception is wanted AND the idle policy still allows it. The idle gate is
-    # what stops a wanted (keep-alive) session from being re-armed the instant
-    # it releases: once idle has elapsed the session stays down until the next
-    # activity (share surface opened or a transfer starts), so idle-sleep is
-    # real instead of a no-op.
-    if [ "$foreground" = open ] || { [ "$receive_eligible" = 1 ] && { [ "$(idle_may_sleep)" = 1 ] || [ "$keepalive_on" = on ]; }; }; then
+    # Arm the session when the share surface is open, or when the receive
+    # switch wants background reception. The switch is authoritative, so no
+    # idle gate applies to it: the session stays armed until the switch
+    # returns to receive-off (the 10-minute "everyone" window falling back
+    # included), and re-arms the moment the switch is turned on again.
+    if [ "$foreground" = open ] || [ "$receive_eligible" = 1 ]; then
         off_samples=0
         if [ ! -e "$STATE/ui-session" ]; then
             # Requested coexistence never mutates association/autojoin. When
@@ -402,16 +383,12 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         fi
     else
         # The share surface is gone and background reception is not wanted.
-        # The session is kept warm for the idle window so that a quick re-open
-        # of the share panel does not tear the AWDL session down and build it
-        # up again; once the window has passed the session is released and the
-        # radio returns to power saving. An idle timeout of 0 keeps the
-        # session resident, matching the documented "0 = always on" behaviour.
-        if [ "$(idle_may_sleep)" = 1 ];then
-            off_samples=0
-        else
-            off_samples=$((off_samples+1))
-        fi
+        # Reception ownership follows the OShare receive switch directly, so
+        # there is no idle warm window any more: after the closed-streak the
+        # session is released and the radio returns to power saving. A
+        # transfer in progress is still honoured: close_session defers until
+        # the transfer finishes.
+        off_samples=$((off_samples+1))
         if [ "$off_samples" -ge 3 ] && [ -e "$STATE/ui-session" ]; then
             if close_session; then provider_failures=0;provider_ready=0;receive_published=0
             else
