@@ -16,9 +16,9 @@ cleanup() {
 }
 trap 'cleanup "${1:-}"' EXIT
 mkdir "$work/classes"
-src="$root/app/src/main/java/com/tlsu/oshareairdrop"
-javac -cp "$sdk/platforms/android-37.0/android.jar" -d "$work/classes" \
-    "$root"/tests/android/com/tlsu/oshareairdrop/*.java \
+src="$root/app/src/main/java/com/oshare/airdrop"
+javac -encoding UTF-8 -cp "$sdk/platforms/android-37.0/android.jar" -d "$work/classes" \
+    "$root"/tests/android/com/oshare/airdrop/*.java \
     "$src/ProviderApi.java" "$src/OutgoingTransfers.java" "$src/CallbackFactory.java" \
     "$src/ProviderHolder.java" "$src/HostContext.java" "$src/IncomingTransfers.java" \
     "$src/AirDropName.java" "$src/ReceiveDirectory.java" "$src/IncomingReceiver.java" "$src/ReceiveFiles.java" "$src/BridgeMessenger.java" \
@@ -33,7 +33,7 @@ if [ "${1:-}" = --compile-only ]; then
     exit 0
 fi
 adb push "$work/test.jar" "$remote_jar"
-adb shell "CLASSPATH=$remote_jar app_process /system/bin com.tlsu.oshareairdrop.TransferCallbackTest $remote_cache"
-adb shell "CLASSPATH=$remote_jar app_process /system/bin com.tlsu.oshareairdrop.BridgeAccessTest"
-adb shell "CLASSPATH=$remote_jar app_process /system/bin com.tlsu.oshareairdrop.BridgeHandshakeTest"
-adb shell "CLASSPATH=$remote_jar app_process /system/bin com.tlsu.oshareairdrop.TransferHistoryTest"
+adb shell "CLASSPATH=$remote_jar app_process /system/bin com.oshare.airdrop.TransferCallbackTest $remote_cache"
+adb shell "CLASSPATH=$remote_jar app_process /system/bin com.oshare.airdrop.BridgeAccessTest"
+adb shell "CLASSPATH=$remote_jar app_process /system/bin com.oshare.airdrop.BridgeHandshakeTest"
+adb shell "CLASSPATH=$remote_jar app_process /system/bin com.oshare.airdrop.TransferHistoryTest"

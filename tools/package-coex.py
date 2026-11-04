@@ -100,14 +100,14 @@ def main():
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
         raise ValueError('A stable major.minor.patch version is required')
     with zipfile.ZipFile(args.bridge) as archive:
-        if not any(b'Lcom/tlsu/oshareairdrop/ShareModeHooks;' in archive.read(name)
+        if not any(b'Lcom/oshare/airdrop/ShareModeHooks;' in archive.read(name)
                    for name in archive.namelist() if re.fullmatch(r'classes\d*\.dex', name)):
             raise ValueError('Build the current release bridge with sharing-mode support first')
     apk_dir = ROOT / 'oshare/app/build/outputs/apk/release'
     metadata = json.loads((apk_dir / 'output-metadata.json').read_text())
     elements = metadata.get('elements', [])
     if (metadata.get('variantName') != 'release'
-            or metadata.get('applicationId') != 'com.tlsu.oshareairdrop'
+            or metadata.get('applicationId') != 'com.oshare.airdrop'
             or len(elements) != 1 or elements[0].get('versionName') != version
             or elements[0].get('versionCode') != version_code
             or elements[0].get('outputFile') != 'app-release.apk'

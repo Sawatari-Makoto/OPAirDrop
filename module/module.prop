@@ -1,7 +1,7 @@
 id=opairshare
 name=OPAirDrop
-version=1.1.17
-versionCode=10270
-author=Air
+version=1.2.0
+versionCode=102000
+author=いいの
 description=为 Oplus sun 平台设备开启 AirDrop，需要开启 Google 服务使用
 updateJson=https://github.com/Sawatari-Makoto/OPAirDrop/releases/latest/download/update.json

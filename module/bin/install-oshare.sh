@@ -5,10 +5,37 @@ BASE=${1:?module directory required}
 PHASE=${2:-install}
 STATE=/data/adb/opairshare
 DB=/data/adb/lspd/config/modules_config.db
-PKG=com.tlsu.oshareairdrop
+PKG=com.oshare.airdrop
 APK="$BASE/companion/OShareAirDrop.apk"
 mkdir -p "$STATE"
 chmod 700 "$STATE"
+
+# Ensure mode: re-assert the LSPosed activation on every boot. Out-of-band
+# writes to modules_config.db (done by the setup tool from a shell context)
+# are not authoritative for lspd: an lspd restart (soft reboot or boot) can
+# roll them back, leaving the module registered but disabled. Running the
+# setup tool again after lspd is up re-asserts the row for the lifetime of
+# that lspd instance, so a per-boot re-assert keeps the module reliably on.
+# A no-op when the activation is already intact.
+if [ "$PHASE" = ensure ]; then
+    [ -f "$DB" ] || exit 0
+    installed=$(/system/bin/pm path --user 0 "$PKG" 2>/dev/null | sed -n 's/^package://p')
+    case "$installed" in /data/app/*/base.apk) ;; *) exit 0;; esac
+    state=$(CLASSPATH="$BASE/payload/native/lsposed-setup.jar" /system/bin/app_process /system/bin OPAirShareLSPosed --check "$DB" "$installed" 2>/dev/null)
+    case "$state" in *enabled=1*apkMatches=1*) exit 0;; esac
+    if CLASSPATH="$BASE/payload/native/lsposed-setup.jar" /system/bin/app_process /system/bin OPAirShareLSPosed "$DB" "$installed" >> "$STATE/oshare-install.log" 2>&1; then
+        log -t opairshare-quickshare 'LSPosed activation re-asserted for this boot'
+        # A process started before the re-assert runs unhooked; drop it so the
+        # next launch (share sheet, receive session, KeepForeService) is
+        # injected. Explicit startservice still reaches a stopped package.
+        [ -z "$(pidof com.coloros.oshare)" ] || /system/bin/am force-stop --user 0 com.coloros.oshare
+        # Each activation snapshots the config DB; keep the newest three.
+        for old in $(ls -t "$STATE"/lsposed-before-activation-*.db 2>/dev/null | tail -n +4); do
+            rm -f "$old"
+        done
+    fi
+    exit 0
+fi
 
 detected=false
 for prop in /data/adb/modules/*/module.prop /data/adb/modules_update/*/module.prop; do

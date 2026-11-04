@@ -384,7 +384,7 @@ autostart: on | off
 
 1. `module/bin/control.sh`：服务栈与原厂恢复。
 2. `module/bin/ui-lifecycle.sh`、`coex-session.sh`：分享界面与无线会话。
-3. `oshare/app/src/main/java/com/tlsu/oshareairdrop/Entry.java`、`ProviderApi.java`：分享入口到 provider。
+3. `oshare/app/src/main/java/com/oshare/airdrop/Entry.java`、`ProviderApi.java`：分享入口到 provider。
 4. `mosey/callback/build.py`、`mosey/discovery/DiscoveryPolicy.java`：回调归属与联网发现。
 5. `native/config.c`、`capability.c`：原生接口适配。
 6. `kernel/provider/provider.c` 与 `kernel/driver/wma_opairshare_pas_mgmt.h`：无线绑定和数据路径。

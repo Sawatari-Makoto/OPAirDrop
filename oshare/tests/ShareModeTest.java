@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 public final class ShareModeTest {
     private static void check(boolean value, String message) {

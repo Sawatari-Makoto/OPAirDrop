@@ -59,7 +59,7 @@ def main():
             assert '[ "$(active_share_mode)" != quickshare ]' in (module / 'bin/receive-session.sh').read_text()
             assert '    if ! apply_share_mode;then' in (module / 'bin/ui-lifecycle.sh').read_text()
             with zipfile.ZipFile(module / 'companion/OShareAirDrop.apk') as bridge:
-                assert any(b'Lcom/tlsu/oshareairdrop/ShareModeHooks;' in bridge.read(name)
+                assert any(b'Lcom/oshare/airdrop/ShareModeHooks;' in bridge.read(name)
                            for name in bridge.namelist() if name.startswith('classes') and name.endswith('.dex'))
             print('PASS share-mode API, lifecycle selection and matching bridge')
         if build_info.get('receive_ui'):

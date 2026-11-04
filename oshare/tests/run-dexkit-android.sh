@@ -20,7 +20,7 @@ mkdir "$work/classes"
 # A supplied, fixed-version AAR is only used for javac; runtime deps are in bridge.
 aar=$(find "$HOME/.gradle/caches/modules-2/files-2.1/org.luckypray/dexkit/2.3.0" -name '*.aar' | head -1)
 unzip -p "$aar" classes.jar > "$work/dexkit.jar"
-javac -source 17 -target 17 -cp "$sdk/platforms/android-37.0/android.jar:$work/dexkit.jar:$root/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes" \
+javac -encoding UTF-8 -source 17 -target 17 -cp "$sdk/platforms/android-37.0/android.jar:$work/dexkit.jar:$root/app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes" \
     -d "$work/classes" "$root/tests/OShareDexResolverTest.java"
 jar cf "$work/classes.jar" -C "$work/classes" .
 "$sdk/build-tools/36.0.0/d8" --lib "$sdk/platforms/android-37.0/android.jar" --min-api 35 \
@@ -33,4 +33,4 @@ adb shell mkdir -p "$remote"
 adb push "$bridge" "$remote/bridge.apk" >/dev/null
 adb push "$apk" "$remote/target.apk" >/dev/null
 adb push "$work/test.jar" "$remote/test.jar" >/dev/null
-adb shell "CLASSPATH=$remote/bridge.apk:$remote/test.jar app_process /system/bin com.tlsu.oshareairdrop.OShareDexResolverTest $remote/bridge.apk $remote/target.apk $mode"
+adb shell "CLASSPATH=$remote/bridge.apk:$remote/test.jar app_process /system/bin com.oshare.airdrop.OShareDexResolverTest $remote/bridge.apk $remote/target.apk $mode"

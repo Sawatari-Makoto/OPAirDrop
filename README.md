@@ -195,7 +195,7 @@ WebUI → 设置 → AirDrop 名称可保存自定义名称或恢复默认。默
 | 运行目录 | `/data/adb/modules/opairshare` |
 | 状态目录 | `/data/adb/opairshare` |
 | 日志导出目录 | `/sdcard/Download/OPAirShare` |
-| 桥接应用 ID | `com.tlsu.oshareairdrop` |
+| 桥接应用 ID | `com.oshare.airdrop` |
 
 ## 开源许可
 

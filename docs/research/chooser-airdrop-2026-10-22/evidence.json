@@ -118,7 +118,7 @@
     {
       "id": "LOCAL-BRIDGE-SEND",
       "evidence_kind": "repository-source-observation",
-      "path": "/Users/evermore/Desktop/dev/android/OPAirShare/oshare/app/src/main/java/com/tlsu/oshareairdrop/OShareBridge.java",
+      "path": "/Users/evermore/Desktop/dev/android/OPAirShare/oshare/app/src/main/java/com/oshare/airdrop/OShareBridge.java",
       "source_text_sha256": "7d3c7d001fe9afc14e09c183dc3a7be33f63ff08a807c117285e2c51537fd836",
       "start_line": 137,
       "end_line": 152,
@@ -127,7 +127,7 @@
     {
       "id": "LOCAL-BRIDGE-HELLO",
       "evidence_kind": "repository-source-observation",
-      "path": "/Users/evermore/Desktop/dev/android/OPAirShare/oshare/app/src/main/java/com/tlsu/oshareairdrop/OShareBridge.java",
+      "path": "/Users/evermore/Desktop/dev/android/OPAirShare/oshare/app/src/main/java/com/oshare/airdrop/OShareBridge.java",
       "source_text_sha256": "7d3c7d001fe9afc14e09c183dc3a7be33f63ff08a807c117285e2c51537fd836",
       "start_line": 268,
       "end_line": 291,

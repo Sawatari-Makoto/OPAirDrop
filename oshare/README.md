@@ -13,7 +13,7 @@
 sh tests/run.sh
 ```
 
-正式构建 APK 输出到 `app/build/outputs/apk/release/app-release.apk`，应用 ID 为 `com.tlsu.oshareairdrop`。release 关闭调试，debug 和 release 均使用与 OplusCameraPro 相同的自有密钥签名；版本名与版本码从根目录 `module/module.prop` 读取。打包工具只接受与模块版本一致的 release 产物。
+正式构建 APK 输出到 `app/build/outputs/apk/release/app-release.apk`，应用 ID 为 `com.oshare.airdrop`。release 关闭调试，debug 和 release 均使用与 OplusCameraPro 相同的自有密钥签名；版本名与版本码从根目录 `module/module.prop` 读取。打包工具只接受与模块版本一致的 release 产物。
 
 在已忽略的 `oshare/local.properties` 或环境变量中配置 `KEYSTORE_PATH`、`KEYSTORE_PASS`、`KEY_ALIAS`、`KEY_PASSWORD`，私钥保留在外部密钥库中。缺少签名配置时不会回退到 Android Debug 签名。签名变更前的 Debug 签名 APK 不能直接覆盖安装，需要先手动卸载旧桥接；KSU 安装脚本保持原逻辑。
 

@@ -9,7 +9,7 @@ import java.util.Set;
 
 /** Root installer. Targeted transactions; LSPosed reloads the configuration on reboot. */
 public final class OPAirShareLSPosed {
-    private static final String PKG = "com.tlsu.oshareairdrop";
+    private static final String PKG = "com.oshare.airdrop";
     private static final String DB = "/data/adb/lspd/config/modules_config.db";
 
     private static String quote(String value) {

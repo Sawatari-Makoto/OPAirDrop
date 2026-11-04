@@ -1,4 +1,4 @@
-import com.tlsu.oshareairdrop.AirDropName;
+import com.oshare.airdrop.AirDropName;
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
 

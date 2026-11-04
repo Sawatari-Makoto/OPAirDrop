@@ -1,4 +1,4 @@
-import com.tlsu.oshareairdrop.OutgoingTransfers;
+import com.oshare.airdrop.OutgoingTransfers;
 
 public final class OutgoingTransfersTest {
     private static void check(boolean ok, String reason) {

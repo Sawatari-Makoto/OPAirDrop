@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

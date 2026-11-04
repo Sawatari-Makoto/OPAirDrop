@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 public final class ReceiveUiPolicyTest {
     private static void check(boolean value) { if (!value) throw new AssertionError(); }

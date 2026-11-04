@@ -1,4 +1,4 @@
-import com.tlsu.oshareairdrop.IncomingTransfers;
+import com.oshare.airdrop.IncomingTransfers;
 
 /** Pure-Java receive admission, stale-command and file-publication regressions. */
 public final class IncomingTransfersTest {

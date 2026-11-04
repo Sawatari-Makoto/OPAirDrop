@@ -159,7 +159,7 @@ def main():
     apk_metadata = json.loads((apk_dir / 'output-metadata.json').read_text())
     elements = apk_metadata.get('elements', [])
     if (apk_metadata.get('variantName') != 'release'
-            or apk_metadata.get('applicationId') != 'com.tlsu.oshareairdrop'
+            or apk_metadata.get('applicationId') != 'com.oshare.airdrop'
             or len(elements) != 1
             or elements[0].get('versionName') != props['version']
             or elements[0].get('versionCode') != int(props['versionCode'])

@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;

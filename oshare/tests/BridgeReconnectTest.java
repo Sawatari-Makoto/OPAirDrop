@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 /** Missed hints, death, repeated hints and HELLO must leave exactly one retry. */
 public final class BridgeReconnectTest {

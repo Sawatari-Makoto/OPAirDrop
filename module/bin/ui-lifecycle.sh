@@ -191,7 +191,7 @@ provider_samples=0
 provider_failures=0
 provider_ready=0
 receive_published=0
-receive_samples=10
+receive_samples=2
 foreground_was=unknown
 unknown_streak=0
 close_force=0
@@ -241,7 +241,7 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         /system/bin/sh "$MODDIR/bin/receive-session.sh" clear 8>&-
         receive_published=0
         if close_session recover;then
-            provider_failures=0;provider_ready=0;provider_samples=0;receive_samples=10
+            provider_failures=0;provider_ready=0;provider_samples=0;receive_samples=2
             echo 'COEX_WIFI_SESSION_RELEASED'
         else
             rc=$?
@@ -307,10 +307,10 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     receive_samples=$((receive_samples+1))
     if [ "$receive_requested" = 1 ];then receive_eligible=1;fi
     # The per-second activity dump is one of the largest awake costs of this
-    # loop. When background reception is wanted, admission is owned by the
-    # switch alone (open OR eligible), so the foreground reading adds nothing
-    # and the dump is skipped entirely. Polling resumes the moment the switch
-    # returns to receive-off, which is when the foreground state matters
+    # loop. Since 1.1.18 admission is owned by the iPhone reception mode
+    # alone, so when reception is wanted the foreground reading adds nothing
+    # and the dump is skipped entirely. Polling resumes the moment the mode
+    # leaves iPhone reception, which is when the foreground state matters
     # again for closing the session.
     if [ "$receive_eligible" = 1 ];then
         foreground=eligible
@@ -373,12 +373,17 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
     else
         unknown_streak=0
     fi
-    # Arm the session when the share surface is open, or when the receive
-    # switch wants background reception. The switch is authoritative, so no
-    # idle gate applies to it: the session stays armed until the switch
-    # returns to receive-off (the 10-minute "everyone" window falling back
-    # included), and re-arms the moment the switch is turned on again.
-    if [ "$foreground" = open ] || [ "$receive_eligible" = 1 ]; then
+    # Arm the session only when background reception is wanted. Since 1.1.18
+    # that is the injected "iPhone (10 minutes)" option alone (oshare_state==1
+    # plus marker opairshare_ios_receive==1, read by receive_wanted above).
+    # Share surfaces no longer arm the session by themselves: ShareActivity
+    # and the system Chooser serve the official Android paths without a
+    # module session, and IOSShareActivity switches the app into iPhone mode,
+    # which makes it eligible through the switch. The switch is
+    # authoritative, so no idle gate applies: the session stays armed until
+    # the mode changes away (including the 10-minute window falling back to
+    # receive-off), and re-arms the moment iPhone mode is selected again.
+    if [ "$receive_eligible" = 1 ]; then
         off_samples=0
         if [ ! -e "$STATE/ui-session" ]; then
             # Requested coexistence never mutates association/autojoin. When
@@ -473,11 +478,11 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
                 provider_samples=0
             fi
         fi
-        # Open admission while the share surface is open or background
-        # reception is wanted. Since 1.1.11 the receive switch alone arms
-        # background admission, so with the switch on the session is fully
-        # resident: the legacy keep-alive toggle is no longer consulted.
-        if { [ "$foreground" = open ] || [ "$receive_eligible" = 1 ]; } && [ "$provider_ready" = 1 ] && [ "$receive_samples" -ge 10 ];then
+        # Open admission while background reception is wanted. Since 1.1.18
+        # only the iPhone reception mode qualifies (see receive_wanted), so
+        # with the mode active the session is fully resident and share
+        # surfaces alone never open admission.
+        if [ "$receive_eligible" = 1 ] && [ "$provider_ready" = 1 ] && [ "$receive_samples" -ge 2 ];then
             if /system/bin/sh "$MODDIR/bin/receive-session.sh" ensure-ui 8>&-;then
                 [ "$receive_published" = 1 ] || startup_trace RECEIVE_HOST_READY
                 # Recheck module/coexistence ownership before opening admission.
@@ -494,13 +499,15 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         fi
     else
         # The share surface is gone and background reception is not wanted.
-        # Reception ownership follows the OShare receive switch directly, so
-        # there is no idle warm window any more: after the closed-streak the
-        # session is released and the radio returns to power saving. A
-        # transfer in progress is still honoured: close_session defers until
-        # the transfer finishes.
+        # Reception ownership follows the iPhone reception mode directly, so
+        # there is no idle warm window any more. Switching away from iPhone
+        # mode closes immediately (the published state cannot survive a mode
+        # that no longer wants it); a still-armed but unpublished session is
+        # released after the closed-streak so one bad reading cannot tear it
+        # down. A transfer in progress is still honoured: close_session
+        # defers until the transfer finishes.
         off_samples=$((off_samples+1))
-        if [ "$off_samples" -ge 3 ] && [ -e "$STATE/ui-session" ]; then
+        if { [ "$off_samples" -ge 3 ] || [ "$receive_published" = 1 ]; } && [ -e "$STATE/ui-session" ]; then
             if close_session ${close_force:+force}; then
                 provider_failures=0;provider_ready=0;receive_published=0
                 close_failures=0;close_force=0

@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 import android.os.Looper;
 import android.graphics.Bitmap;

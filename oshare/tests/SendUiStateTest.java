@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 public final class SendUiStateTest {
     static void check(boolean ok, String reason) { if (!ok) throw new AssertionError(reason); }

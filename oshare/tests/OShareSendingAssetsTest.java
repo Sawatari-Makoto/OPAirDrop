@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 import java.util.zip.ZipFile;
 import java.nio.charset.StandardCharsets;

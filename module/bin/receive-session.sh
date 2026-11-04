@@ -11,11 +11,16 @@ init_state
 receive_wanted() {
     [ "$(saved_share_mode)" = "$(active_share_mode)" ] || return 1
     [ "$(active_share_mode)" != quickshare ] || return 1
-    # The user's OShare "一加互传" receive switch owns AirDrop visibility:
-    # receive-off (oshare_state == 0) closes the broadcast session, while
-    # everyone (1) and contacts-only (2) both keep it armed.
+    # Since 1.1.18 only the injected "iPhone (10 minutes)" option owns the
+    # AirDrop session: it selects the official everyone state through the
+    # native write path (oshare_state == 1) and records the module marker
+    # opairshare_ios_receive == 1. Both must hold. The official everyone(1)
+    # and contacts-only(2) selections clear the marker and keep pure native
+    # behaviour with no module session at all.
     oshare_state=$(/system/bin/settings get system oshare_state 2>/dev/null || true)
-    [ "$oshare_state" != 0 ] || return 1
+    [ "$oshare_state" = 1 ] || return 1
+    ios_mode=$(/system/bin/settings get system opairshare_ios_receive 2>/dev/null || true)
+    [ "$ios_mode" = 1 ] || return 1
     # Whether the AirDrop wireless session may be opened at all: the module is
     # enabled, the stack is owned and coexistence is available. This is the
     # admission gate used when the share surface is open.
@@ -24,10 +29,11 @@ receive_wanted() {
         coex_available
 }
 
-# Background reception is owned by the OShare receive switch itself since
-# 1.1.11: everyone(1) and contacts-only(2) arm the session, receive-off(0)
-# releases it. The legacy keep-alive toggle is no longer consulted; its
-# subcommands are kept only for backward compatibility.
+# Background reception is owned by the injected "iPhone (10 minutes)" option
+# since 1.1.18: everyone(1) plus marker opairshare_ios_receive==1 arms the
+# session, every other combination releases it. The legacy keep-alive toggle
+# is no longer consulted; its subcommands are kept only for backward
+# compatibility.
 airdrop_keepalive() {
     [ -e "$STATE/airdrop-keepalive" ]
 }

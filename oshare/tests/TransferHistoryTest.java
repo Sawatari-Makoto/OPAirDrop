@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 /** Real callback wrappers and timing decisions, without Xposed or a radio session. */
 public final class TransferHistoryTest {

@@ -1,5 +1,5 @@
-import com.tlsu.oshareairdrop.AirDropPresentation;
-import com.tlsu.oshareairdrop.AirDropPresentation.Kind;
+import com.oshare.airdrop.AirDropPresentation;
+import com.oshare.airdrop.AirDropPresentation.Kind;
 
 public final class AirDropPresentationTest {
     static void expect(Kind actual, Kind expected) { if (actual != expected) throw new AssertionError(actual + " != " + expected); }

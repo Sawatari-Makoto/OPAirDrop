@@ -1,4 +1,4 @@
-import com.tlsu.oshareairdrop.DiscoveryChannels;
+import com.oshare.airdrop.DiscoveryChannels;
 import java.util.List;
 
 public final class DiscoveryChannelsTest {

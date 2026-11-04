@@ -15,8 +15,8 @@ fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 classpath="$json_jar:$sdk/platforms/android-37.0/android.jar"
-javac -cp "$classpath" -d "$work" \
-    "$root/tests/android/com/tlsu/oshareairdrop/Entry.java" \
-    "$root/app/src/main/java/com/tlsu/oshareairdrop/OShareSendingAssets.java" \
+javac -encoding UTF-8 -cp "$classpath" -d "$work" \
+    "$root/tests/android/com/oshare/airdrop/Entry.java" \
+    "$root/app/src/main/java/com/oshare/airdrop/OShareSendingAssets.java" \
     "$root/tests/OShareSendingAssetsTest.java"
-java -cp "$work:$classpath" com.tlsu.oshareairdrop.OShareSendingAssetsTest "$upk"
+java -cp "$work:$classpath" com.oshare.airdrop.OShareSendingAssetsTest "$upk"

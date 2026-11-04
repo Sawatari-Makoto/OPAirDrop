@@ -1,4 +1,4 @@
-import com.tlsu.oshareairdrop.CallbackFactory;
+import com.oshare.airdrop.CallbackFactory;
 
 /** Regression: aps/aqa are Java interfaces and do not extend IInterface. */
 public class CallbackFactoryTest {

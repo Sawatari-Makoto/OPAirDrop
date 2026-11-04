@@ -1,5 +1,62 @@
 # OPAirDrop 更新日志
 
+## 1.2.0
+
+- App 侧 provider 兜底恢复：模块会话释放后会把 provider 宿主包
+  （com.google.android.mosey）disable-user 省电，正常由下次武装时的
+  `provider.sh ensure` 重新启用；但武装流程被中断（如 WiFi 关闭时
+  COEX_BLOCKED 提前退出）会留下禁用态，此时 App 内任何桥接启动都会抛
+  ActivityNotFoundException 并提示「AirDrop 服务未启用」。现在设置页切换
+  分享入口时，App 先无权限读取该包启用状态，发现禁用即经既有 su 通道
+  `pm enable` 兜底，再执行模式切换；仅在确实禁用时触发，避免
+  PACKAGE_CHANGED 强杀运行中的 provider。
+- 修复勾选【iPhone（10 分钟）】时【所有人（10 分钟）】被同时勾选的问题。
+  根因是设置页状态重绑入口 `k0(int)` 在广播/观察者回调中按 state 重勾
+  所有人，异步晚于模块同步；现已 hook 该入口并在重绑后立即纠偏。
+- 【可被附近 iPhone 设备发现】与【mm:ss 后将切换至“接收关闭”】文案改为
+  显示在 iPhone 行下方（重定向官方所有人行的副标题写入点
+  `COUIMarkPreference.p1`），不再出现在所有人行。
+- 恢复官方【所有人】档的原生倒计时行为（回落到“仅限联系人”、文案同步），
+  续期/回落 hook 现以模块标记为门，仅在 iPhone 档生效。
+- SystemUI 控制中心长按一加互传面板注入【iPhone（10 分钟）】行（克隆官方
+  所有人行结构），支持勾选联动、倒计时文案重定向与官方点按绕行。
+- 官方模式交还：处于【所有人】或【仅限联系人】任一官方模式时，分享侧不再
+  注入 AirDrop 设备/会话（九处桥接点以标记为门），官方互传行为完整保留。
+- AirDrop 会话启动提速：接收武装门槛由固定 10 秒迟滞收紧为 2 秒防抖
+  （`ui-lifecycle.sh`），选中 iPhone 档后约 2-3 秒内开闸。
+- 配套 App 重构为独立身份：包名 `com.oshare.airdrop`，作者 いいの，
+  版本 1.2.0（versionCode 102000）；新增带界面 Activity（原生 View），
+  承接 KernelSU WebUI 全部功能（分享入口切换、AirDrop 名称、接收目录、
+  日志查看/导出、服务状态），通过 root 调用同一 `settings.sh` 后端。
+- App UI 采用 FreeShift 风格深色三栏布局（首页 / 状态 / 设置，底部导航 +
+  切换动效 + 按压反馈）：首页为 Hero 标语卡与运行环境总览，状态页复刻
+  WebUI 服务状态徽章，设置页复刻 WebUI 全部设置项；新增专属应用图标
+  （squircle / 圆形双形态 + 自适应前景，全密度 mipmap）。
+- LSPosed 激活自愈：lspd 重启（软重启/开机）可能回滚模块对配置库的
+  带外写入，导致模块重启后回到未启用状态。现在开机完成后自动复查激活
+  状态（`install-oshare.sh ensure`），失配即重激活并重启互传进程，
+  无需再手动到 LSPosed 管理器里启用。
+
+## 1.1.18
+
+- 接收开关新增第四档【iPhone（10 分钟）】，位于【所有人】与【仅限联系人】
+  之间。该档通过 Xposed 运行时注入（不动资源，无 arsc 重建风险）：选中时走
+  官方完整写路径切换到「所有人」状态并记录模块标记 `opairshare_ios_receive=1`，
+  只有这一组合会武装 AirDrop 会话。处于其余任何档位（所有人/仅限联系人/
+  接收关闭，含官方倒计时自动回落）都会关闭会话并清除标记——官方选项恢复
+  纯官方行为，与其他 Android 设备互传不受模块影响。
+- 【iPhone（10 分钟）】沿用传输驱动倒计时：AirDrop 传输结束/中断后重新计时
+  10 分钟再回落到接收关闭；该续期逻辑（设置页/面板倒计时、TimeoutReceiver
+  回落共 3 处）现在以标记为门，仅在 iPhone 档生效，官方【所有人】档恢复
+  官方原生倒计时（不再被传输活动续期）。
+- 主动打开「与 iPhone 互传」（IOSShareActivity）自动切换到【iPhone（10 分钟）】
+  并接入 AirDrop；ShareActivity 与系统分享面板不再武装模块会话，交还官方。
+- 会话开/关提速：选中 iPhone 档约 1 秒内武装；从 iPhone 档切走时若已对外
+  发布则立即关闭会话（不再等 3 秒确认窗口）。AWDL 开闭本就随会话 prepare/
+  restore 走，iPhone 档外不再武装即自动满足跟随。
+- Wi-Fi 重连提速待实测传输时延后再评估（驱动切换仍为开机级，会话级仅为
+  STA pause/restore）。
+
 ## 1.1.17
 
 - 修复 AirDrop 会话掉线后无法恢复。根因：KernelSU 会在同一次开机内重复执行

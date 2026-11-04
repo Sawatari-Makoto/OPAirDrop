@@ -14,7 +14,7 @@
 
 | 编号 | 来源 | 性质 |
 | --- | --- | --- |
-| E1 | 当前仓库 `oshare/app/src/main/java/com/tlsu/oshareairdrop/OShareBridge.java`、`Entry.java`、`OShareSymbols.java`、`BridgeMessenger.java` | 源码观察；工作区存在其他正在进行的修改 |
+| E1 | 当前仓库 `oshare/app/src/main/java/com/oshare/airdrop/OShareBridge.java`、`Entry.java`、`OShareSymbols.java`、`BridgeMessenger.java` | 源码观察；工作区存在其他正在进行的修改 |
 | E2 | `/Users/evermore/Desktop/dev/android/AirDropVivoCN/oshare-base.apk` | 本地 OShare APK；SHA-256 `8bcc8a4874af16a4c19f688a1b9cda2ca6d605c770187257c0dbb6d2b12eccf5` |
 | E3 | `/Users/evermore/Desktop/dev/android/AirDropVivoCN/oshare-analysis/jadx-out/` | 既有反编译缓存；manifest 声明包名 `com.coloros.oshare`、版本 `17.2.36 / 17002036` |
 | E4 | `/Users/evermore/Desktop/dev/android/dumper/oplus-framework/oplus-framework.jar` | 本地 framework；SHA-256 `cdbef3ac2a08bedd1198a7698eeffb7d0b82567660e67afd8fb9b320d40d673a` |

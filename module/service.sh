@@ -29,6 +29,12 @@ init_share_mode || exit 3
 if [ -f "$STATE/oshare-setup-pending" ]; then
     /system/bin/sh "$MODDIR/bin/install-oshare.sh" "$MODDIR" boot >> "$STATE/oshare-install.log" 2>&1 || true
 fi
+# Re-assert the LSPosed activation on every boot: lspd restarts roll back
+# out-of-band writes to modules_config.db, which previously left the module
+# disabled after a soft reboot until the user re-enabled it by hand. A no-op
+# when the activation is already intact. Runs after boot_completed, i.e.
+# after lspd has loaded its config, so the write sticks for this session.
+/system/bin/sh "$MODDIR/bin/install-oshare.sh" "$MODDIR" ensure >> "$STATE/oshare-install.log" 2>&1 || true
 # Auto-start is enabled by default. customize.sh creates `autostart` at install
 # unless the user explicitly opted out via `autostart-off`. Honor an explicit
 # opt-out; otherwise default to ON, so a missing/vanishing `autostart` marker
@@ -106,7 +112,27 @@ while :; do
         # retry path keeps the patched drivers in place and only restarts the
         # native server and the supervisor. A transfer in progress makes the
         # retry exit 9; that is benign and simply retries on the next tick.
+        # The watchdog also tracks system_server generations: a soft reboot
+        # (zygote restart) re-runs neither service.sh nor the boot ensure,
+        # while lspd dies with system_server and rolls back out-of-band
+        # activation writes. Re-assert the activation whenever system_server
+        # is reborn without changing the boot id.
         watchdog_interval=${OPAIRSHARE_WATCHDOG_INTERVAL:-60}
+        ss_pid=$(pidof system_server 2>/dev/null || true)
+        [ -n "$ss_pid" ] && echo "$ss_pid" > "$STATE/lspd-gen"
+        # The boot ensure above runs before lspd initializes: lspd then clobbers
+        # the row as it loads its config with system_server, and the change
+        # detector below never fires on the first generation. Re-assert once
+        # here, where lspd is already up, so the write outlives this instance's
+        # init; ensure is self-gating and exits 0 when the state is intact.
+        /system/bin/sh "$MODDIR/bin/install-oshare.sh" "$MODDIR" ensure >> "$STATE/oshare-install.log" 2>&1 || true
+        # The rollback is not pinned to a fixed moment: lspd has been observed
+        # normalizing the config DB minutes after boot, long after the ensure
+        # above saw an intact row and silently skipped. Re-assert on every
+        # tick inside a grace window instead; ensure is self-gating, so an
+        # intact state costs only the probe. The window reopens after each
+        # system_server generation change (soft reboot).
+        reassert_until=$(( $(date +%s) + ${OPAIRSHARE_REASSERT_WINDOW:-900} ))
         while :; do
             sleep "$watchdog_interval"
             # An explicit opt-out (module disabled/removed) ends the watchdog;
@@ -115,6 +141,15 @@ while :; do
                 exit 0
             fi
             if ! same_boot "$STATE/stack-boot"; then exit 0; fi
+            ss_now=$(pidof system_server 2>/dev/null || true)
+            if [ -n "$ss_now" ] && [ "$ss_now" != "$(cat "$STATE/lspd-gen" 2>/dev/null)" ]; then
+                echo "$ss_now" > "$STATE/lspd-gen"
+                echo "system_server restarted (soft reboot); re-assert window reopened" >> "$STATE/boot-start.log"
+                reassert_until=$(( $(date +%s) + 300 ))
+            fi
+            if [ "$(date +%s)" -lt "$reassert_until" ]; then
+                /system/bin/sh "$MODDIR/bin/install-oshare.sh" "$MODDIR" ensure >> "$STATE/oshare-install.log" 2>&1 || true
+            fi
             sup=$(cat "$STATE/supervisor.pid" 2>/dev/null || true)
             if pid_is "$sup" 'ui-lifecycle.sh'; then continue; fi
             echo "Supervisor not running (pid=$sup); watchdog restart" >> "$STATE/boot-start.log"

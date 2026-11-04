@@ -13,11 +13,11 @@ val signingProperties = Properties().apply {
 fun signingValue(name: String): String? = signingProperties.getProperty(name) ?: System.getenv(name)
 
 android {
-    namespace = "com.tlsu.oshareairdrop"
+    namespace = "com.oshare.airdrop"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.tlsu.oshareairdrop"
+        applicationId = "com.oshare.airdrop"
         minSdk = 35
         targetSdk = 37
         versionCode = providers.gradleProperty("opairshareVersionCode").orNull?.toInt()

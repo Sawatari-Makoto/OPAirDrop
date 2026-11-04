@@ -172,56 +172,56 @@
       "target": "oshare/app/src/main/AndroidManifest.xml"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/AirDropPresentation.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/AirDropPresentation.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/AirDropPresentation.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/AirDropPresentation.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/BridgeMessenger.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/BridgeMessenger.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/BridgeMessenger.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/BridgeMessenger.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/BridgeServer.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/BridgeServer.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/BridgeServer.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/BridgeServer.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/CallbackFactory.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/CallbackFactory.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/CallbackFactory.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/CallbackFactory.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/DiscoveryChannels.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/DiscoveryChannels.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/DiscoveryChannels.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/DiscoveryChannels.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/Entry.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/Entry.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/Entry.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/Entry.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/HostContext.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/HostContext.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/HostContext.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/HostContext.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/MainActivity.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/MainActivity.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/MainActivity.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/MainActivity.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/OShareAppearance.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/OShareAppearance.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/OShareAppearance.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/OShareAppearance.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/OShareBridge.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/OShareBridge.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/OShareBridge.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/OShareBridge.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/OutgoingTransfers.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/OutgoingTransfers.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/OutgoingTransfers.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/OutgoingTransfers.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/ProviderApi.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/ProviderApi.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/ProviderApi.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/ProviderApi.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/tlsu/oshareairdrop/ProviderHolder.java",
-      "target": "oshare/app/src/main/java/com/tlsu/oshareairdrop/ProviderHolder.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/java/com/oshare/airdrop/ProviderHolder.java",
+      "target": "oshare/app/src/main/java/com/oshare/airdrop/ProviderHolder.java"
     },
     {
       "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/app/src/main/res/values/strings.xml",
@@ -284,12 +284,12 @@
       "target": "oshare/tests/OutgoingTransfersTest.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/tests/android/com/tlsu/oshareairdrop/Entry.java",
-      "target": "oshare/tests/android/com/tlsu/oshareairdrop/Entry.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/tests/android/com/oshare/airdrop/Entry.java",
+      "target": "oshare/tests/android/com/oshare/airdrop/Entry.java"
     },
     {
-      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/tests/android/com/tlsu/oshareairdrop/TransferCallbackTest.java",
-      "target": "oshare/tests/android/com/tlsu/oshareairdrop/TransferCallbackTest.java"
+      "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/tests/android/com/oshare/airdrop/TransferCallbackTest.java",
+      "target": "oshare/tests/android/com/oshare/airdrop/TransferCallbackTest.java"
     },
     {
       "source": "ksu-module-stage72-aligned-r27/source/stage69/OShareAirDrop/tests/appearance/AppearanceStateTest.java",

@@ -1,4 +1,4 @@
-package com.tlsu.oshareairdrop;
+package com.oshare.airdrop;
 
 import org.luckypray.dexkit.DexKitBridge;
 import java.util.List;

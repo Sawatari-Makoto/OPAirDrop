@@ -6,7 +6,7 @@ import subprocess
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG = 'com.tlsu.oshareairdrop'
+PKG = 'com.oshare.airdrop'
 MODERN = '''
 CREATE TABLE modules(module_pkg_name TEXT PRIMARY KEY NOT NULL,apk_path TEXT);
 CREATE TABLE modules_state(module_pkg_name TEXT NOT NULL,user_id INTEGER NOT NULL,
