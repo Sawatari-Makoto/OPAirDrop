@@ -7,7 +7,6 @@ OPAirShare 默认采用 **GNU GPL v3.0**，完整条款见 [LICENSE](LICENSE)。
 | 范围 | 协议 |
 | --- | --- |
 | 项目维护的运行脚本、构建工具、测试、Mosey 补丁工具、OShare 桥接与文档 | GPL-3.0-only |
-| WebUI 中本项目编写的代码与修改 | GPL-3.0-only，随附上游声明 |
 | `native/config.c`、Wi-Fi 会话助手及其项目构建文件 | GPL-3.0-only |
 | `native/capability.c`、`native/socket-buffer.c` | GPL-2.0-only，沿用文件声明 |
 | 本项目新增的内核适配代码 | GPL-2.0-only |
@@ -19,7 +18,7 @@ GPLv3 允许使用、研究、修改和商业分发。分发项目代码或修�
 
 ## 第三方代码
 
-Qualcomm WLAN 文件中的 ISC 声明、Wonder 的 GPLv2 声明，以及 WebUI 参考代码和依赖的 Apache 2.0 / MIT 声明随源码保留。具体来源、版本和修改说明见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+Qualcomm WLAN 文件中的 ISC 声明与 Wonder 的 GPLv2 声明随源码保留。具体来源、版本和修改说明见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 协议全文和第三方许可文件位于 [LICENSES](LICENSES/README.md)。
 

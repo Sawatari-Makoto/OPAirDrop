@@ -34,7 +34,6 @@ fi
 REPLACE="/system/system_ext/priv-app/MoseyApp"
 root_write_policy "$MODPATH" || abort 'Root SELinux policy configuration failed'
 for item in "$MODPATH"/*;do
-    [ "$item" != "$MODPATH/webroot" ] || continue
     if [ -d "$item" ];then set_perm_recursive "$item" 0 0 0755 0644
     else set_perm "$item" 0 0 0644;fi
 done
@@ -82,4 +81,4 @@ oshare_status=$?
 printf '%s\n' "$oshare_result" | while IFS= read -r line; do ui_print "- $line"; done
 [ "$oshare_status" = 0 ] || ui_print '- OShare 配置尚未完成，重启后将自动重试；请查看 /data/adb/opairshare/oshare-install.log'
 
-ui_print '- Open module WebUI for settings, status and logs'
+ui_print '- Open the OPAirDrop app for settings, status and logs'

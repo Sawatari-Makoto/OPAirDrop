@@ -53,7 +53,12 @@ exit 0''')
         return path
 
     def run_script(self, name):
-        return subprocess.run(['sh', str(self.module / 'bin' / name), str(self.module), str(self.device)],
+        # Pass MSYS-style POSIX paths: the sandbox shell wrapper rejects
+        # embedded drive prefixes (C:/...) in file operations.
+        def msys(p):
+            p = Path(p)
+            return '/' + p.drive.lower()[:1] + p.as_posix()[2:] if p.drive else p.as_posix()
+        return subprocess.run(['sh', msys(self.module / 'bin' / name), msys(self.module), msys(self.device)],
                               env=self.env, capture_output=True, text=True)
 
     def prepare(self):

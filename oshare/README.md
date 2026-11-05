@@ -2,7 +2,7 @@
 
 连接 OShare 系统分享界面与 Mosey provider 的 LSPosed 模块。OShare 的内部入口与设备属性通过 DexKit 2.3.0 动态解析。
 
-桥接 APK 仅提供 Xposed 功能，没有独立 Activity、桌面图标或 LSPosed 设置页。模块设置和日志使用 KernelSU WebUI，文件收发使用系统互传界面及宿主中的接收对话框。
+桥接 APK 仅提供 Xposed 功能，没有独立 Activity、桌面图标或 LSPosed 设置页。模块设置和日志使用配套 App（`com.oshare.airdrop`），文件收发使用系统互传界面及宿主中的接收对话框。
 
 ## 构建
 
@@ -74,7 +74,7 @@ sh tests/run-receive-dexkit-android.sh /absolute/path/to/OShare.apk baseline
 
 传输中继续使用流体云；整批文件保存成功后，屏幕已解锁且没有其他活动接收界面时自动弹出完成对话框，提供“完成 / 打开文件”和实际保存目录。锁屏或其他接收任务占用界面时，通过通知打开结果；历史快照与重复完成回调不会重复弹窗。
 
-WebUI → 设置 → 文件接收 → 保存位置可指定内部存储 `Download` 或 `Documents` 下的目录（例如 `Download/AirDrop`）。所有文件统一保存到该目录，下一批保存时生效；留空恢复图片 / 视频 / 其他文件的原分类目录。设置保存在 Settings.Global；暂存目录仍为 `Download/.OPAirShare-incoming`，完成文件继续通过 MediaStore 发布并授权 content URI。
+App → 设置 → 文件接收 → 保存位置可指定内部存储 `Download` 或 `Documents` 下的目录（例如 `Download/AirDrop`）。所有文件统一保存到该目录，下一批保存时生效；留空恢复图片 / 视频 / 其他文件的原分类目录。设置保存在 Settings.Global；暂存目录仍为 `Download/.OPAirShare-incoming`，完成文件继续通过 MediaStore 发布并授权 content URI。
 
 ## 向 Apple 设备发送的流体云展示
 

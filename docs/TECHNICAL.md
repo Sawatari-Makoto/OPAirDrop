@@ -15,7 +15,7 @@ flowchart TD
     Bridge --> Radio[Qualcomm WLAN / 固件]
     Radio <-->|AWDL| Apple[Apple 设备]
 
-    WebUI[KernelSU WebUI] -->|ksu.exec| Settings[settings.sh / speed-history.sh]
+    App[配套 App] -->|su| Settings[settings.sh / speed-history.sh]
     Settings --> State[配置、状态与历史]
     Supervisor[ui-lifecycle.sh] --> Provider
     Supervisor --> Coex[coex-session.sh]
@@ -29,7 +29,7 @@ flowchart TD
 | 原生适配 | `native/` | Binder capability、FFI 配置、socket 缓冲和 Wi-Fi 会话元数据 |
 | 无线适配 | `kernel/` | Wonder 绑定、passthru 会话、peer、管理帧 TX 与 native RX |
 | 生命周期 | `module/bin/` | 驱动加载、provider 激活、共存参数、会话释放与配置持久化 |
-| 管理界面 | `webui/` | 服务状态、共存开关、速度历史与日志 |
+| 管理界面 | `oshare/` | 服务状态、共存开关、速度历史与日志 |
 
 ## 2. 启动与会话生命周期
 
@@ -57,7 +57,7 @@ com.google.android.moseyservice.IMoseyService/default
 
 ### 2.2 分享会话
 
-`ui-lifecycle.sh` 从 `dumpsys activity activities` 识别前台 Activity。它跟踪 Quick Share 和 OShare 互传界面，并将同一分享任务中的文件选择器纳入会话。桥接 APK 无独立界面，管理入口为 KernelSU WebUI。
+`ui-lifecycle.sh` 从 `dumpsys activity activities` 识别前台 Activity。它跟踪 Quick Share 和 OShare 互传界面，并将同一分享任务中的文件选择器纳入会话。桥接 APK 无独立界面，管理入口为配套 App。
 
 ```mermaid
 stateDiagram-v2
@@ -139,7 +139,7 @@ Mosey 中的 `ReceiveController` 在模块后台接收开启、root 共存准备
 
 Mosey 的下载目录参数是公共 Downloads 下的目录名。本桥接使用 `.OPAirShare-incoming`，完成后按源文件实际长度复制到 MediaStore。原生小型文本文件自动转 TextAttachment 并删除原文件的分支，仅对当前桥接拥有的文件附件禁用，以保留字节与文件名。保存失败可重试，成功后提供授权 content URI。
 
-WebUI 的 `receive-directory-set <UTF-8 hex>` / `receive-directory-reset` 通过 Settings.Global `opairshare_receive_directory_hex` 设置完成文件目录。状态字段为 `receive_directory`；空值沿用原先 Pictures / Movies / Download 下的 OPAirShare 分类。自定义目录限定为 Download 或 Documents 及其非隐藏子目录，经 MediaStore.Files 发布整批文件。Java、WebUI 与 shell 校验 UTF-8、字节长度、目录分段和路径跳转；每批发布开始时读取一次配置，已有文件不移动，Mosey 暂存目录不变。完成事件携带 MediaStore 返回的实际文件名、目录及可授权 URI。
+配套 App 的 `receive-directory-set <UTF-8 hex>` / `receive-directory-reset` 通过 Settings.Global `opairshare_receive_directory_hex` 设置完成文件目录。状态字段为 `receive_directory`；空值沿用原先 Pictures / Movies / Download 下的 OPAirShare 分类。自定义目录限定为 Download 或 Documents 及其非隐藏子目录，经 MediaStore.Files 发布整批文件。Java、App 与 shell 校验 UTF-8、字节长度、目录分段和路径跳转；每批发布开始时读取一次配置，已有文件不移动，Mosey 暂存目录不变。完成事件携带 MediaStore 返回的实际文件名、目录及可授权 URI。
 
 `ui-lifecycle.sh` 同时管理发送界面和后台接收需求。从 1.0.11 起，后台接收由模块与共存开关控制，独立于 oshare_state 和原生时限。OShare 宿主通过模块拥有的前台服务代理保持运行；撤销新邀请不释放忙碌的接收宿主，确认空闲后才释放代理。相关主机回归位于 `tests/test_receive_lifecycle.py`；目前真机已验证 Mac 发送文本文件、接收确认、保存及 SHA256 一致，其他场景仍待验证。
 
@@ -155,7 +155,7 @@ WebUI 的 `receive-directory-set <UTF-8 hex>` / `receive-directory-reset` 通过
 
 ### 3.6 AirDrop 名称
 
-WebUI 的 `name-set <UTF-8 hex>` / `name-reset` 独立于无线参数修改，不要求关闭接收会话。后端校验 UTF-8、控制字符和 64 字符上限，将十六进制值写入 Settings.Global 的 `opairshare_airdrop_name_hex`，状态返回当前生效配置、自定义值和默认属性值。输入从不作为 shell 源码解释。
+配套 App 的 `name-set <UTF-8 hex>` / `name-reset` 独立于无线参数修改，不要求关闭接收会话。后端校验 UTF-8、控制字符和 64 字符上限，将十六进制值写入 Settings.Global 的 `opairshare_airdrop_name_hex`，状态返回当前生效配置、自定义值和默认属性值。输入从不作为 shell 源码解释。
 
 `AirDropName` 使用同样的 UTF-8 / 字符校验；默认读取 `ro.vendor.oplus.market.enname`，依次回退 `Build.MODEL`、`OPAirShare`。发送时即时读取名称；`ReceiveController` 在没有待确认 / 活动接收或发送时通过 Mosey UpdateAdvertising 更新广播，失败稍后重试。设置保存读回成功表示配置已持久化，Apple 列表实际刷新受协议更新与对端缓存影响。
 
@@ -295,7 +295,7 @@ prepare 先将 boot ID、STA 频率、原 property 和七个驱动参数写入 `
 
 失效会话立即关闭接收准入，等待 provider 确认无待确认邀请、传输或文件发布，再按 provider release → native Stop → 驱动空闲确认 → 参数恢复释放，即使分享页面仍在前台也会执行。回到 149 后重新准备共存；同信道换网络也重建会话。非 149 下前台分享沿用非共存流程，回到 149 时先安全释放旧会话及 Wi-Fi 元数据，再升级为共存；Wi-Fi 状态不可读时不自动启动非共存流程。手动关闭不会自动恢复。此恢复不保证无线变化时已有传输不中断。
 
-接收 `ready` 再次查询当前连接，检查暂停/失效标记及 network ID，避免准备与广播之间的网络变化直接开放准入。`settings.sh status` 的 `coexist` 表示当前可用策略，`coexist_requested` 保存用户开关，`coexist_reason` 说明暂停原因；WebUI 使用 requested 保存设置，避免把暂时暂停误存为永久关闭。
+接收 `ready` 再次查询当前连接，检查暂停/失效标记及 network ID，避免准备与广播之间的网络变化直接开放准入。`settings.sh status` 的 `coexist` 表示当前可用策略，`coexist_requested` 保存用户开关，`coexist_reason` 说明暂停原因；App 使用 requested 保存设置，避免把暂时暂停误存为永久关闭。
 
 ## 8. 状态与并发管理
 
@@ -323,16 +323,11 @@ prepare 先将 boot ID、STA 频率、原 property 和七个驱动参数写入 `
 | `callback/operation.flock` | callback 挂载操作 |
 | `speed-history/worker.flock` | 速度记录进程 |
 
-`settings.sh apply` 保存前记录标记文件与驱动参数；写入中断或返回错误时按快照恢复。WebUI 在保存后重新读取状态，对照目标配置。
+`settings.sh apply` 保存前记录标记文件与驱动参数；写入中断或返回错误时按快照恢复。App 在保存后重新读取状态，对照目标配置。
 
-## 9. WebUI 与管理 API
+## 9. 管理接口
 
-前端使用 Vue 3.5.38、miuix-vue 0.1.1 和 Vite。底栏包含状态与设置两个页面：
-
-- 状态：AWDL、QuickShare、OShare 状态，实时发送/接收速度与历史列表。
-- 设置：Wi-Fi 共存开关、关于、日志查看与导出。
-
-`webui/src/api.ts` 使用 KernelSU 的 `window.ksu.exec` 调用固定后端命令。每次请求使用独立的 JS callback key，在回调或超时后清理。
+配套 App（`oshare/`）通过 su 通道调用固定的后端命令读取状态与保存配置，无需管理器提供 WebUI 宿主。
 
 | 接口 | 命令 | 返回 |
 | --- | --- | --- |
@@ -353,9 +348,7 @@ profile:  fast | vht | on | off
 autostart: on | off
 ```
 
-共存开关由后端读取当前 scope、profile 和 autostart，复用 `apply` 的锁与传输安全检查。配置和名称保存直接验证后端返回的状态 JSON，每次保存只调用一次 root bridge。`awdl` 状态由驱动参数节点和原生服务进程生成；QuickShare 与 OShare 优先检查运行进程，未运行时查询安装信息。状态 JSON 由 `webui-status.sh` 一次序列化，保留字符串转义；原始 `radio`、`matcher`、`pending` 字段用于描述无线会话。
-
-界面可见时，实时速度每秒刷新，完整状态每五秒刷新；切页复用近期状态，未变化的历史列表不重建。后台查询和保存使用独立的忙状态，查询期间仍可操作设置；保存会使此前未完成的状态请求失效，避免旧结果覆盖保存结果。开关立即展示待保存值，保存失败时回到已确认值；切页不再等待旧页面淡出。
+共存开关由后端读取当前 scope、profile 和 autostart，复用 `apply` 的锁与传输安全检查。配置和名称保存直接验证后端返回的状态 JSON，每次保存只调用一次 root shell。`awdl` 状态由驱动参数节点和原生服务进程生成；QuickShare 与 OShare 优先检查运行进程，未运行时查询安装信息。状态 JSON 由 `settings.sh` 一次序列化，保留字符串转义；原始 `radio`、`matcher`、`pending` 字段用于描述无线会话。
 
 ## 10. 速度历史
 
@@ -388,6 +381,6 @@ autostart: on | off
 4. `mosey/callback/build.py`、`mosey/discovery/DiscoveryPolicy.java`：回调归属与联网发现。
 5. `native/config.c`、`capability.c`：原生接口适配。
 6. `kernel/provider/provider.c` 与 `kernel/driver/wma_opairshare_pas_mgmt.h`：无线绑定和数据路径。
-7. `module/bin/settings.sh`、`speed-history.sh` 与 `webui/src/api.ts`：管理接口与界面。
+7. `module/bin/settings.sh`、`speed-history.sh`：管理接口。
 
 其他设备的适配步骤见 [平台迁移指南](PORTING.md)。

@@ -34,32 +34,6 @@
 
 [GPLv2 条款](LICENSES/GPL-2.0-only.txt)
 
-## WebUI 参考项目
-
-- 项目：[luyanci/hybrid-miuix-webui](https://github.com/luyanci/hybrid-miuix-webui)。
-- 协议：Apache-2.0。
-- 项目修改：采用 Vue 组件布局，接入 OPAirShare 的状态、共存设置、速度历史与日志 API。
-- 来源记录：`webui/reference-info.json`。
-- 原许可文件：`webui/LICENSE-REFERENCE`。
-
-[Apache 2.0 条款](LICENSES/Apache-2.0.txt)
-
-## WebUI 运行依赖
-
-| 组件 | 版本 | 协议 | 原许可文件 |
-| --- | --- | --- | --- |
-| Vue | 3.5.38 | MIT | [vue.txt](LICENSES/third-party/vue.txt) |
-| @vue/shared | 3.5.38 | MIT | [vue-shared.txt](LICENSES/third-party/vue-shared.txt) |
-| @vue/reactivity | 3.5.38 | MIT | [vue-reactivity.txt](LICENSES/third-party/vue-reactivity.txt) |
-| @vue/runtime-core | 3.5.38 | MIT | [vue-runtime-core.txt](LICENSES/third-party/vue-runtime-core.txt) |
-| @vue/runtime-dom | 3.5.38 | MIT | [vue-runtime-dom.txt](LICENSES/third-party/vue-runtime-dom.txt) |
-| miuix-vue | 0.1.1 | Apache-2.0 | [miuix-vue.txt](LICENSES/third-party/miuix-vue.txt) |
-| motion-v | 2.8.0 | MIT | [motion-v.txt](LICENSES/third-party/motion-v.txt) |
-| motion-dom | 14.3.1 | MIT | [motion-dom.txt](LICENSES/third-party/motion-dom.txt) |
-| motion-utils | 14.1.1 | MIT | [motion-utils.txt](LICENSES/third-party/motion-utils.txt) |
-
-这些文件从对应版本的软件包中原样保留。依赖版本由 `webui/package-lock.json` 管理。
-
 ## Gradle Wrapper
 
 - 位置：`oshare/gradlew`、`oshare/gradlew.bat` 与 `oshare/gradle/wrapper/`。
@@ -69,7 +43,7 @@
 
 [Apache 2.0 条款](LICENSES/Apache-2.0.txt)
 
-其他 npm 和 Gradle 构建依赖按各软件包随附的许可声明提供。
+其他 Gradle 构建依赖按各软件包随附的许可声明提供。
 
 ## Unlock CN GMS
 
@@ -82,12 +56,11 @@
 
 ## 其他构建接口与运行环境
 
-- [Vite](https://github.com/vitejs/vite)：WebUI 构建工具。
 - [libxposed API](https://github.com/libxposed/api)：桥接工程使用的 Xposed 接口。
 - [LSPosed](https://github.com/LSPosed/LSPosed)：桥接运行环境。
-- [KernelSU](https://github.com/tiann/KernelSU)：模块、挂载和 WebUI 运行环境。
+- [KernelSU](https://github.com/tiann/KernelSU)：模块与挂载环境。
 
-libxposed API 使用 Apache-2.0，LSPosed 使用 GPL-3.0。KernelSU 的 kernel 目录使用 GPL-2.0-only，其余部分使用 GPL-3.0-or-later；Vite 使用 MIT。WebUI 的“开放源代码许可”页面列出各参考项目、组件的许可名称及原文来源，未声明统一许可的材料明确标记。
+libxposed API 使用 Apache-2.0，LSPosed 使用 GPL-3.0。KernelSU 的 kernel 目录使用 GPL-2.0-only，其余部分使用 GPL-3.0-or-later。
 
 完整的使用与参考项目列表同时列在 [README](README.md#使用与参考项目)。
 

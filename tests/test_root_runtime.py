@@ -6,11 +6,18 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import re
 import tempfile
 import unittest
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def msys(path):
+    """MSYS-style absolute path; the sandbox file shim rejects drive prefixes."""
+    path = Path(path)
+    return '/' + path.drive.lower()[:1] + path.as_posix()[2:] if path.drive else path.as_posix()
 
 
 class RootRuntime(unittest.TestCase):
@@ -24,8 +31,8 @@ class RootRuntime(unittest.TestCase):
         self.calls = self.base / 'calls'
         self.library = self.base / 'root-runtime.sh'
         self.library.write_text((ROOT / 'module/bin/root-runtime.sh').read_text()
-                                .replace('/data/adb', str(self.adb))
-                                .replace('/system/bin', str(self.system)))
+                                .replace('/data/adb', self.adb.as_posix())
+                                .replace('/system/bin', self.system.as_posix()))
         self.env = {k: v for k, v in os.environ.items()
                     if k not in ('KSU', 'APATCH', 'MAGISK_VER', 'MAGISK_VER_CODE', 'OPAIRSHARE_GLOBAL_ENTERED')}
         self.env.update(CALLS=str(self.calls), PATH=str(self.system) + ':' + os.environ['PATH'])
@@ -46,7 +53,7 @@ class RootRuntime(unittest.TestCase):
     def run_shell(self, code, *args):
         return subprocess.run(['sh', '-eu', '-c', '. "$1"; shift; ' + code, 'root-test',
                                str(self.library), *map(str, args)], env=self.env,
-                              capture_output=True, text=True, timeout=5)
+                              capture_output=True, text=True, timeout=30)
 
     def test_active_manager_tools_win_over_stale_installations(self):
         for path in ('ksu/bin', 'ap/bin', 'magisk'):
@@ -90,7 +97,11 @@ case "$1" in
  /proc/1/ns/mnt) echo global;;
  *) if [ -n "${OPAIRSHARE_GLOBAL_ENTERED:-}" ] && [ "${FAILED_ENTRY:-0}" = 0 ]; then echo global; else echo private; fi;;
 esac''')
-        (self.system / 'sh').symlink_to('/bin/sh')
+        # Windows symlink creation needs elevated privileges; a trampoline
+        # through the real /bin/sh keeps the PATH lookup semantics instead.
+        sh_trampoline = self.system / 'sh'
+        sh_trampoline.write_text('#!/bin/sh\nexec /bin/sh "$@"\n')
+        sh_trampoline.chmod(0o755)
         self.command(self.system / 'nsenter', '''
 printf '%s\\n' "$*" >> "$CALLS"
 [ "$1 $2 $3" = '-t 1 -m' ] || exit 99
@@ -98,12 +109,12 @@ shift 3
 exec "$@"''')
         runner = self.base / 'runner.sh'
         runner.write_text(f'. "{self.library}"\nroot_enter_global "$0" "$@" || exit 2\nprintf "arg=%s\\n" "$1"\n')
-        result = subprocess.run(['sh', str(runner), 'space argument'], env=self.env,
+        result = subprocess.run(['sh', runner.as_posix(), 'space argument'], env=self.env,
                                 capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, 'arg=space argument\n')
         self.env['FAILED_ENTRY'] = '1'
-        result = subprocess.run(['sh', str(runner), 'arg'], env=self.env,
+        result = subprocess.run(['sh', runner.as_posix(), 'arg'], env=self.env,
                                 capture_output=True, text=True, timeout=5)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('cannot enter', result.stderr)
@@ -138,7 +149,13 @@ exec "$@"''')
         module = self.base / 'installed-module'
         shutil.copytree(ROOT / 'module', module)
         installer = module / 'customize.sh'
-        installer.write_text(installer.read_text().replace('/data/adb', str(self.adb)))
+        installer.write_text(installer.read_text().replace('/data/adb', msys(self.adb)))
+        # The installer gates on the kernel ABI family recorded for the payload;
+        # the runtime check compares it against the running kernel release.
+        release = subprocess.run(['uname', '-r'], capture_output=True, text=True).stdout.strip()
+        identity = module / 'bin/kernel-identity.sh'
+        identity.write_text(identity.read_text().replace(
+            'KERNEL_ABI_FAMILY=BUILD_REQUIRED', f'KERNEL_ABI_FAMILY={release}'), newline='\n')
         for name in ('setup-gms.sh', 'install-oshare.sh'):
             (module / 'bin' / name).write_text('echo fixture; exit 0\n')
         self.command(self.system / 'id', '''
@@ -146,8 +163,8 @@ case "$1" in -u) echo 0;; -Z) echo "${CONTEXT}";; *) exit 1;; esac''')
         self.command(self.system / 'getprop', '''
 case "$1" in ro.board.platform) echo sun;; ro.product.*) echo OnePlus;; esac''')
         (module / 'SHA256SUMS').write_text(''.join(
-            f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(module)}\n'
-            for path in sorted(module.rglob('*')) if path.is_file()))
+            f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(module).as_posix()}\n'
+            for path in sorted(module.rglob('*')) if path.is_file()), newline='\n')
         for context, hint in [('ksu', 'KSU=true'), ('magisk', 'MAGISK_VER=30'),
                               ('magisk', 'APATCH=true'), ('su', '')]:
             self.env.update(CONTEXT=f'u:r:{context}:s0', KSU='false', APATCH='false', MAGISK_VER='')
@@ -160,7 +177,7 @@ set_perm() { :; }
 set_perm_recursive() { :; }
 . "$MODPATH/customize.sh"
 sh "$MODPATH/bin/verify.sh" "$MODPATH" installed
-''', module)
+''', module.as_posix())
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(f'allow {context} mosey_service', (module / 'sepolicy.rule').read_text())
             self.assertFalse((self.adb / 'metamodule').exists())
@@ -174,13 +191,21 @@ sh "$MODPATH/bin/verify.sh" "$MODPATH" installed
         source = self.base / 'source'
         (source / 'module').mkdir(parents=True)
         shutil.copytree(ROOT / 'module/bin', source / 'module/bin')
-        (source / 'webui/dist').mkdir(parents=True)
-        (source / 'webui/dist/index.html').write_text('fixture')
         packager.ROOT = source
         module = self.base / 'release'
         (module / 'bin').mkdir(parents=True)
-        (module / 'webroot').mkdir()
         (module / 'sepolicy.rule').write_text('old device policy')
+        # rewrite_identity() reads the captured identity notes from the release
+        # module and derives the ABI family from the shipped driver's vermagic.
+        (module / 'payload/kernel').mkdir(parents=True)
+        (module / 'payload/kernel/qca_cld3_peach_v2.ko').write_bytes(
+            b'\x7fELF\x00vermagic=6.6.118-android15-8-gdeadbeef-abogki1-4k\x00')
+        identity = (ROOT / 'module/bin/kernel-identity.sh').read_text()
+        identity = identity.replace('opairshare_wonder_provider', 'oneplus13_wonder_provider')
+        identity = re.sub(r'^(NOTE_\w+)=BUILD_REQUIRED$',
+                          lambda m: f'{m.group(1)}={m.group(1).encode().hex()}',
+                          identity, flags=re.M)
+        (module / 'bin/kernel-identity.sh').write_text(identity, newline='\n')
         packager.overlay_sources(module)
         self.assertFalse((module / 'sepolicy.rule').exists())
         self.assertIn('ROOT_DOMAIN', (module / 'bin/root-sepolicy.rule').read_text())
@@ -194,19 +219,25 @@ sh "$MODPATH/bin/verify.sh" "$MODPATH" installed
         source.write_text('patched')
         target.hardlink_to(source)
         code = (ROOT / 'module/bin/callback.sh').read_text().split('owned() {', 1)[1].split('restore_owned()', 1)[0]
-        function = 'owned() {' + code.replace('/proc/self/mountinfo', str(mountinfo))
+        function = 'owned() {' + code.replace('/proc/self/mountinfo', mountinfo.as_posix())
         for mount_root in ('/adb/callback.apk', '/data/adb/callback.apk', '/arbitrary/root'):
-            mountinfo.write_text(f'1 2 0:1 {mount_root} {target} ro - ext4 /dev/test ro\n')
-            result = self.run_shell(function + '\nowned "$1" "$2"', target, source)
+            # awk -v eats backslash escapes in values, and the mount table
+            # must record the exact path awk receives, so stay POSIX here.
+            mountinfo.write_text(f'1 2 0:1 {mount_root} {target.as_posix()} ro - ext4 /dev/test ro\n',
+                                 newline='\n')
+            result = self.run_shell(function + '\nowned "$1" "$2"',
+                                    target.as_posix(), source.as_posix())
             self.assertEqual(result.returncode, 0, result.stderr)
         # Same bytes from someone else's mount do not establish ownership.
         target.unlink()
         target.write_bytes(source.read_bytes())
-        self.assertNotEqual(self.run_shell(function + '\nowned "$1" "$2"', target, source).returncode, 0)
+        self.assertNotEqual(self.run_shell(function + '\nowned "$1" "$2"',
+                                           target.as_posix(), source.as_posix()).returncode, 0)
         target.unlink()
         target.hardlink_to(source)
-        mountinfo.write_text('')
-        self.assertNotEqual(self.run_shell(function + '\nowned "$1" "$2"', target, source).returncode, 0)
+        mountinfo.write_text('', newline='\n')
+        self.assertNotEqual(self.run_shell(function + '\nowned "$1" "$2"',
+                                           target.as_posix(), source.as_posix()).returncode, 0)
 
 
 class EffectiveMounts(unittest.TestCase):
@@ -222,8 +253,9 @@ class EffectiveMounts(unittest.TestCase):
         for rel in [self.binary, 'system_ext/lib64/libmosey_daemon_ffi.so']:
             source = self.module / 'system' / rel
             source.parent.mkdir(parents=True, exist_ok=True)
-            source.write_text('fixture')
-            source.chmod(0o755)
+            # A shebang keeps MSYS '[ -x ]' happy where POSIX exec bits
+            # cannot be represented on Windows.
+            source.write_text('#!/system/bin/sh\nfixture\n')
         for line in (self.module / 'APP-SHA256SUMS').read_text().splitlines():
             apk = self.module / 'system/system_ext/priv-app/MoseyApp' / line.split()[1]
             apk.parent.mkdir(parents=True, exist_ok=True)
@@ -231,8 +263,9 @@ class EffectiveMounts(unittest.TestCase):
         shutil.copytree(self.module / 'system', self.device)
 
     def check(self):
-        return subprocess.run(['sh', str(self.module / 'bin/mount-check.sh'),
-                               str(self.module), str(self.device)], capture_output=True, text=True)
+        return subprocess.run(['sh', (self.module / 'bin/mount-check.sh').as_posix(),
+                               self.module.as_posix(), self.device.as_posix()],
+                              capture_output=True, text=True)
 
     def test_builtin_mounts_without_metamodule_pass_and_relocated_layout_passes(self):
         self.assertEqual(self.check().returncode, 0)

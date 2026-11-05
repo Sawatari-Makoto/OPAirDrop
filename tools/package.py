@@ -184,7 +184,6 @@ def main():
     copy_tree(reference / 'system', output / 'system')
     copy_tree(reference / 'payload/kernel', output / 'payload/kernel')
     copy_tree(reference / 'payload/app-callback', output / 'payload/app-callback')
-    copy_tree(ROOT / 'webui/dist', output / 'webroot')
     for name in ('APP-SHA256SUMS', 'APP-CALLBACK-SHA256SUMS'):
         source = reference / name
         if digest(source) != manifest.get(name):

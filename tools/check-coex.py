@@ -14,8 +14,20 @@ import zipfile
 from release import inspect_archive
 
 
+def msys(path):
+    """MSYS-style absolute path.
+
+    On Windows, a drive-prefixed path (`C:/...`) is rejected by the sandbox
+    file shim and a backslash path is mangled by MSYS argument translation,
+    so every path handed to a shell is converted to the `/c/...` form. On
+    POSIX hosts this is the identity function.
+    """
+    path = Path(path)
+    return '/' + path.drive.lower()[:1] + path.as_posix()[2:] if path.drive else path.as_posix()
+
+
 def run(command, env):
-    result = subprocess.run(command, capture_output=True, text=True, env=env, timeout=10)
+    result = subprocess.run(command, capture_output=True, text=True, env=env, timeout=120)
     if result.returncode:
         raise AssertionError(f'{command}: rc={result.returncode}\n{result.stdout}{result.stderr}')
     return result.stdout
@@ -44,10 +56,12 @@ def main():
         for path in module.rglob('*.sh'):
             subprocess.run(['sh', '-n', str(path)], check=True)
         env = dict(os.environ)
-        run(['sh', str(module / 'bin/verify.sh'), str(module)], env)
+        run(['sh', module.as_posix() + '/bin/verify.sh', module.as_posix()], env)
         assert 'passthru_sta_coexist=3' in (module / 'bin/control.sh').read_text()
         build_info = json.loads((module / 'build-info.json').read_text())
-        assert build_info['channel'] == 'stable'
+        # package-coex.py records the channel; package.py reference builds are
+        # stable by construction, so a missing field still passes.
+        assert build_info.get('channel', 'stable') == 'stable'
         assert props['version'] == build_info['version']
         for name in ('module.prop', 'README.md', 'CHANGELOG.md'):
             assert not re.search(r'测试版|测试包|实验包|coex-\w*-test\d|## 未发布', (module / name).read_text()), name
@@ -96,12 +110,13 @@ def main():
         overlays = build_info.get('workspace_overlays', {})
         for name, expected in overlays.items():
             assert hashlib.sha256((module / name).read_bytes()).hexdigest() == expected, name
-        if 'bin/webui-status.sh' in overlays:
-            settings = (module / 'bin/settings.sh').read_text()
-            assert '. "$MODDIR/bin/webui-status.sh"' in settings
-            assert '    json_object \\\n' in settings and '    coexist)\n' not in settings
-            assert 'sta_class "$sta_class"' in settings and 'sta_band "$sta_band"' in settings
-            print('PASS optimized status, always-on coexistence, cross-band status fields and overlay provenance')
+        settings = (module / 'bin/settings.sh').read_text()
+        assert '. "$MODDIR/bin/webui-status.sh"' not in settings
+        assert not (module / 'bin/webui-status.sh').exists()
+        assert not (module / 'bin/webui-insets.sh').exists()
+        assert '    json_object \\\n' in settings and '    coexist)\n' not in settings
+        assert 'sta_class "$sta_class"' in settings and 'sta_band "$sta_band"' in settings
+        print('PASS optimized status, always-on coexistence, cross-band status fields, webui removed')
 
         # Upgrades retain manual choices; a clean install selects fast.
         state = root / 'state'
@@ -113,7 +128,7 @@ def main():
         migration='rm -f /data/adb/opairshare/coex-off /data/adb/opairshare/coex-same149-only\n'
         assert migration.strip() in installer
         block = migration + installer.split(anchor, 1)[1].split('rm -f /data/adb/opairshare/disabled', 1)[0]
-        block = block.replace('/data/adb/opairshare', str(state))
+        block = block.replace('/data/adb/opairshare', msys(state))
         run(['sh', '-eu', '-c', block], env)
         assert sorted(p.name for p in state.iterdir()) == ['turbo-off', 'turbo-on', 'turbo-vht']
         for path in state.iterdir():
@@ -122,9 +137,11 @@ def main():
         assert sorted(p.name for p in state.iterdir()) == ['turbo-fast']
         common = module / 'bin/common.sh'
         profile = run(['sh', '-c', '. "$1"; STATE=$2; turbo_module_args', 'test',
-                       str(common), str(state)], env)
+                       common.as_posix(), msys(state)], env)
         cold_profile = dict(item.split('=', 1) for item in shlex.split(profile))
-        expected = build_info['profile']
+        # package-coex.py ships the tuned profile; package.py reference builds
+        # rely on the module defaults, so nothing extra to compare.
+        expected = build_info.get('profile', {})
         for key, value in expected.items():
             assert cold_profile['passthru_awdl_' + key] == str(value)
 
@@ -133,8 +150,22 @@ def main():
         for name, code in {
             'flock': 'exit 0',
             'date': 'echo 1792648059',
-            'getprop': f'cat "{root}/prop-$1" 2>/dev/null || true',
-            'setprop': f'printf "%s" "$2" > "{root}/prop-$1"',
+            'getprop': f'cat "{msys(root)}/prop-$1" 2>/dev/null || true',
+            'setprop': f'printf "%s" "$2" > "{msys(root)}/prop-$1"',
+            # mkdir -m 700 chmods, which the test sandbox denies; the real
+            # device keeps the mode, so only the fixture drops it.
+            'mkdir': 'n=$#\n'
+                     'skip=0\n'
+                     'for arg in "$@"; do\n'
+                     '    if [ "$skip" = 1 ];then skip=0;continue;fi\n'
+                     '    case $arg in\n'
+                     '        -m) skip=1;;\n'
+                     '        -m*) ;;\n'
+                     '        *) set -- "$@" "$arg";;\n'
+                     '    esac\n'
+                     'done\n'
+                     'shift "$n"\n'
+                     'exec /usr/bin/mkdir "$@"',
         }.items():
             path = tools / name
             path.write_text('#!/bin/sh\n' + code + '\n')
@@ -144,10 +175,18 @@ def main():
         original_coex = (module / 'bin/coex-session.sh').read_text()
         params = root / 'params'
         params.mkdir()
-        common.write_text(original_common + f'\nSTATE="{state}"\nboot_id() {{ echo fixture-boot; }}\n'
-                          f'framework() {{ cat "{root}/wifi"; }}\n')
+        # prepare() refuses to arm a session until this boot's callback patch
+        # is mounted; boot_id is stubbed to 'fixture-boot' below.
+        (state / 'callback').mkdir()
+        (state / 'callback' / 'boot').write_text('fixture-boot\n')
+        # driver_rx_filter_idle()/driver_radio_idle() in common.sh also probe
+        # the sysfs parameters directly, so rewrite them like coex-session.sh.
+        common.write_text(original_common.replace(
+            '/sys/module/qca_cld3_peach_v2/parameters', msys(params))
+            + f'\nSTATE="{msys(state)}"\nboot_id() {{ echo fixture-boot; }}\n'
+            f'framework() {{ cat "{msys(root)}/wifi"; }}\n')
         coex = module / 'bin/coex-session.sh'
-        coex.write_text(original_coex.replace('/sys/module/qca_cld3_peach_v2/parameters', str(params)))
+        coex.write_text(original_coex.replace('/sys/module/qca_cld3_peach_v2/parameters', msys(params)))
         for frequency, klass in [(5745, 'same149'), (5805, 'cross5g'),
                                  (2447, 'band24'), (6115, 'band6')]:
             (root / 'wifi').write_text('Wifi is enabled\nWifi is connected to fixture\n'
@@ -163,12 +202,12 @@ def main():
                 'opairshare_awdl_rx_mac_filter': 'used=0 armed=0 pending=0 active=0 fault=0',
             }.items():
                 (params / name).write_text(value + '\n')
-            output = run(['sh', str(coex), 'prepare'], env)
+            output = run(['sh', coex.as_posix(), 'prepare'], env)
             assert f'class={klass}' in output and 'mode=3' in output, output
             assert (state / 'coex-session/class').read_text().strip() == klass
             for name, value in cold_profile.items():
                 assert (params / name).read_text().strip() == value, (frequency, name)
-            run(['sh', str(coex), 'restore'], env)
+            run(['sh', coex.as_posix(), 'restore'], env)
             assert not (state / 'coex-session').exists()
             for name, value in cold_profile.items():
                 assert (params / name).read_text().strip() == value

@@ -12,7 +12,7 @@ OPAirDrop 是一个 Root 模块，为一加 13（PJZ110）等 Oplus 设备开启
 
 ### 2. 三种 AirDrop 分享入口
 
-在 WebUI 中选择，无需重启：
+在配套 App 中选择，无需重启：
 
 - **Quick Share**：由 Google Quick Share 管理 AirDrop 收发。
 - **OShare**：由系统互传管理 AirDrop 收发、名称和保存位置。
@@ -34,9 +34,9 @@ OPAirDrop 是一个 Root 模块，为一加 13（PJZ110）等 Oplus 设备开启
 - 按当前 Wi-Fi 连接的 2.4 / 5 / 6 GHz 频段自动选择共存策略。
 - 网络变化时按任务状态释放和重建会话；传输期间按需关闭 STA 省电。
 
-### 6. WebUI 管理界面
+### 6. 配套 App 管理界面
 
-在支持模块 WebUI 的 Root 管理器或兼容宿主中打开，包含：
+安装随模块附带的 OPAirDrop App（`com.oshare.airdrop`），通过 root 调用模块脚本，包含：
 
 - 服务状态（AWDL、Quick Share、OShare）。
 - 实时速度与传输历史（发送/接收字节、峰值与平均速度）。

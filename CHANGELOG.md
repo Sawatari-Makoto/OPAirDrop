@@ -2,6 +2,13 @@
 
 ## 1.2.0
 
+- 移除模块 WebUI：其全部功能（分享入口切换、AirDrop 名称、接收目录、
+  日志查看/导出、服务状态）已由配套 App 完整承接，同一 `settings.sh`
+  后端改由 App 经 su 通道调用。删除 `webui/` 前端工程、
+  `webui-status.sh` / `webui-insets.sh`、模块 `webroot/` 及
+  `settings.sh` 的 insets 采集与 WebUI 快照目录；打包器与验收检查
+  （`check-coex.py`）同步移除 webroot 装配和 webui 测试项。历史版本
+  升级到本版后，旧 `webroot/` 目录随模块更新被清除。
 - App 侧 provider 兜底恢复：模块会话释放后会把 provider 宿主包
   （com.google.android.mosey）disable-user 省电，正常由下次武装时的
   `provider.sh ensure` 重新启用；但武装流程被中断（如 WiFi 关闭时

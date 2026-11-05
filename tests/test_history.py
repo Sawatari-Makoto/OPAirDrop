@@ -10,10 +10,10 @@ class Recorder(unittest.TestCase):
   (b/'clock').write_text('1000');(b/'keep').write_text('1');(b/'step').write_text('0');(b/'points').write_text(json.dumps(points))
   (b/'provider').write_text('Unavailable dump' if confirmed is None else 'ExternalSharingService state:\nActive Transfers ('+('1' if confirmed else '0')+')\nReceive provider transferring: false\nOPAIRSHARE_RECEIVE busy=0')
   module=b/'module';(module/'bin').mkdir(parents=True)
-  (module/'bin/common.sh').write_text(f'''STATE='{state}'
+  (module/'bin/common.sh').write_text(f'''STATE='{state.as_posix()}'
 COMP=provider
 init_state() {{ :; }}
-same_boot() {{ [ "$(cat '{b}/keep')" = 1 ]; }}
+same_boot() {{ [ "$(cat '{b.as_posix()}/keep')" = 1 ]; }}
 pid_is() {{ return 1; }}
 ''')
   tools=b/'tools';tools.mkdir();p=tools/'flock';p.write_text('#!/bin/sh\nexit 0\n');p.chmod(0o755)
@@ -34,14 +34,15 @@ else:
    phase={'pending':'waiting','active':'active','done':'idle'}.get(state)
    (b/'provider').write_text('ExternalSharingService state:\\nActive Transfers ('+('1' if state in ('busy','pending','active','done') else '0')+')\\nReceive provider transferring: false\\nOPAIRSHARE_RECEIVE busy='+('1' if state=='publishing' else '0')+('\\nOPAIRSHARE_HISTORY state='+phase if phase else ''))
 ''');p.chmod(0o755)
-  script=(HERE.parent/'module/bin/speed-history.sh').read_text().replace('/sys/class/net/mosey0',str(interface)).replace('awk \'{printf "%.0f",$1*1000}\' /proc/uptime',f'cat {b}/clock')
-  script=script.replace('/system/bin/timeout 3 /system/bin/dumpsys activity service "$COMP"',f'cat {b}/provider')
+  script=(HERE.parent/'module/bin/speed-history.sh').read_text().replace('/sys/class/net/mosey0',f"'{interface.as_posix()}'").replace('awk \'{printf "%.0f",$1*1000}\' /proc/uptime',f"cat '{b.as_posix()}/clock'")
+  script=script.replace('/system/bin/timeout 3 /system/bin/dumpsys activity service "$COMP"',f"cat '{b.as_posix()}/provider'")
   p=module/'bin/speed-history.sh';p.write_text(script)
+  (module/'bin/transfer-power.sh').write_text((HERE.parent/'module/bin/transfer-power.sh').read_text())
   if previous:
    d=state/'speed-history';d.mkdir();(d/'records.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in previous))
   env=dict(os.environ,PATH=str(tools)+os.pathsep+os.environ['PATH'],FIXTURE=str(b))
-  r=subprocess.run(['sh',str(p),'run'],env=env,capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
-  status=subprocess.run(['sh',str(p),'status'],env=env,capture_output=True,text=True);self.assertEqual(status.returncode,0,status.stderr)
+  r=subprocess.run(['sh',p.as_posix(),'run'],env=env,capture_output=True,text=True);self.assertEqual(r.returncode,0,r.stdout+r.stderr)
+  status=subprocess.run(['sh',p.as_posix(),'status'],env=env,capture_output=True,text=True);self.assertEqual(status.returncode,0,status.stderr)
   result=json.loads(status.stdout)
   result['_samples']=[json.loads(line) for line in (b/'live-samples').read_text().splitlines()]
   return result
@@ -169,16 +170,17 @@ else:
    state=b/'state';d=state/'speed-history';d.mkdir(parents=True);(d/'pid').write_text('42')
    proc=b/'proc/42';proc.mkdir(parents=True)
    (proc/'stat').write_text('42 (sh) S 1\n')
-   (proc/'cmdline').write_bytes(b'/system/bin/sh\0'+str(module/'bin/speed-history.sh').encode()+b'\0run\0')
-   common=(HERE.parent/'module/bin/common.sh').read_text().replace('STATE=/data/adb/opairshare',f'STATE={state}').replace('/proc/',str(b/'proc')+'/')
+   (proc/'cmdline').write_bytes(b'/system/bin/sh\0'+(module/'bin/speed-history.sh').as_posix().encode()+b'\0run\0')
+   common=(HERE.parent/'module/bin/common.sh').read_text().replace('STATE=/data/adb/opairshare',f"STATE='{state.as_posix()}'").replace('/proc/',str((b/'proc').as_posix())+'/')
    (module/'bin/common.sh').write_text(common)
    script=(HERE.parent/'module/bin/speed-history.sh').read_text()
    script=script.replace('/system/bin/sh "$MODDIR/bin/speed-history.sh" run >> "$D/worker.log" 2>&1 < /dev/null &','echo unexpected_worker_launch >&2; exit 1')
    p=module/'bin/speed-history.sh';p.write_text(script)
+   (module/'bin/transfer-power.sh').write_text((HERE.parent/'module/bin/transfer-power.sh').read_text())
    tools=b/'tools';tools.mkdir();timeout=tools/'timeout';timeout.write_text('#!/bin/sh\nshift\nexec "$@"\n');timeout.chmod(0o755)
    env=dict(os.environ,PATH=str(tools)+os.pathsep+os.environ['PATH'])
-   result=subprocess.run(['sh',str(p),'status'],env=env,capture_output=True,text=True,check=True)
+   result=subprocess.run(['sh',p.as_posix(),'status'],env=env,capture_output=True,text=True,check=True)
    self.assertEqual(json.loads(result.stdout)['recorder'],'on')
-   result=subprocess.run(['sh',str(p),'start'],env=env,capture_output=True,text=True,check=True)
+   result=subprocess.run(['sh',p.as_posix(),'start'],env=env,capture_output=True,text=True,check=True)
    self.assertEqual(result.stderr,'')
 if __name__=='__main__':unittest.main(verbosity=2)

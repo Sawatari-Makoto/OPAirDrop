@@ -1,12 +1,11 @@
 #!/system/bin/sh
-# Module WebUI API: fixed commands and enums; no user-provided shell text.
+# Module settings API: fixed commands and enums; no user-provided shell text.
 set -eu
 MODDIR=$(CDPATH= cd -- "${0%/*}/.." && pwd)
 . "$MODDIR/bin/common.sh"
 . "$MODDIR/bin/coex-wifi.sh"
 . "$MODDIR/bin/airdrop-name.sh"
 . "$MODDIR/bin/receive-directory.sh"
-. "$MODDIR/bin/webui-status.sh"
 . "$MODDIR/bin/share-mode.sh"
 . "$MODDIR/bin/idle-sleep.sh"
 init_state
@@ -33,6 +32,34 @@ json_string() {
       }} END {printf "\""}'
 }
 pair() { printf '"%s":' "$1";json_string "$2"; }
+# Serialize alternating key/value arguments into one JSON object.
+json_object() {
+    LC_ALL=C awk 'BEGIN {
+        printf "{"; first=(ARGV[1]=="--" ? 2 : 1)
+        for(i=first;i<ARGC;i+=2) {
+            if(i>first)printf ","
+            quote(ARGV[i]);printf ":";quote(ARGV[i+1])
+        }
+        print "}";exit
+    }
+    function quote(value, j,c) {
+        printf "\""
+        for(j=1;j<=length(value);j++) {
+            c=substr(value,j,1)
+            if(c=="\\")printf "\\\\";else if(c=="\"")printf "\\\""
+            else if(c=="\n")printf "\\n";else if(c=="\t")printf "\\t";else if(c=="\r")printf "\\r"
+            else if(c ~ /[[:cntrl:]]/)printf "?";else printf "%s",c
+        }
+        printf "\""
+    }' -- "$@"
+}
+app_state() {
+    if [ -n "$(pidof "$1" 2>/dev/null || true)" ];then
+        echo running
+    elif framework timeout 4 pm path --user 0 "$1" 2>/dev/null | grep -q '^package:';then
+        echo idle
+    else echo not_installed;fi
+}
 status() {
     coex_wifi_read || true
     wifi=$coex_wifi_text
@@ -80,18 +107,9 @@ status() {
     fi
     quickshare=$(app_state com.google.android.mosey)
     oshare=$(app_state com.coloros.oshare)
-    # System bar insets for the WebUI, measured by the window manager and
-    # reported in CSS pixels. The page uses them to reserve exactly the space
-    # the status and navigation bars occupy.
-    insets=$(/system/bin/timeout 8 /system/bin/sh "$MODDIR/bin/webui-insets.sh" 2>/dev/null || true)
-    inset_top=$(printf '%s\n' "$insets" | sed -n 's/.*top=\([0-9][0-9]*\).*/\1/p' | head -1)
-    inset_bottom=$(printf '%s\n' "$insets" | sed -n 's/.*bottom=\([0-9][0-9]*\).*/\1/p' | head -1)
-    [ -n "$inset_top" ] || inset_top=0
-    [ -n "$inset_bottom" ] || inset_bottom=0
     awdl=stopped
     if [ -r "$P/opairshare_channel_state" ] && [ -n "$(pidof mosey_server 2>/dev/null || true)" ];then awdl=running;fi
-    # WebView keeps its matchMedia result from page load, so the backend reports
-    # the current system dark mode and the page re-themes on each poll.
+    # Reported for clients that follow system dark mode.
     night_mode=off
     if /system/bin/cmd uimode night 2>/dev/null | grep -q 'yes';then night_mode=on;fi
     json_object \
@@ -127,8 +145,6 @@ status() {
         nss "$(read_p passthru_awdl_nss)" \
         batch "$(read_p passthru_awdl_amsdu_max)" \
         collect "$(read_p passthru_awdl_collect_us)" \
-        inset_top "$inset_top" \
-        inset_bottom "$inset_bottom" \
         callback "$(same_boot "$STATE/callback/boot" && echo on || echo off)"
 }
 idle() {
@@ -264,7 +280,7 @@ case "${1:-status}" in
         [ "$2" != on ] || same_boot "$STATE/callback/boot" || fail '先恢复进度/发现补丁后再开启共存。'
         old_coex=$(coexist);old_scope=$(scope);old_profile=$(profile);old_auto=$(flag autostart)
         if [ "$2:$3:$4:$5" = "$old_coex:$old_scope:$old_profile:$old_auto" ];then status;exit 0;fi
-        snapshot=$(mktemp -d "$STATE/webui-settings.XXXXXX")
+        snapshot=$(mktemp -d "$STATE/settings-snapshot.XXXXXX")
         markers='turbo-off turbo-vht turbo-fast turbo-on autostart autostart-off'
         knobs='passthru_awdl_amsdu passthru_awdl_amsdu_max passthru_awdl_amsdu_bytes passthru_awdl_phy passthru_awdl_mcs passthru_awdl_nss passthru_awdl_collect_us passthru_awdl_bw'
         for name in $markers;do [ ! -e "$STATE/$name" ] || touch "$snapshot/marker-$name";done

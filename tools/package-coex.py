@@ -84,8 +84,6 @@ def overlay_sources(module):
     # Never retain the captured KSU policy in a manager-independent archive.
     (module / 'sepolicy.rule').unlink(missing_ok=True)
     shutil.copy2(ROOT / 'module/bin/root-sepolicy.rule', module / 'bin/root-sepolicy.rule')
-    shutil.rmtree(module / 'webroot')
-    shutil.copytree(ROOT / 'webui/dist', module / 'webroot')
 
 
 def main():
@@ -242,10 +240,6 @@ def main():
             'bin/' + name: digest((output / 'bin' / name).read_bytes())
             for name in sorted([path.name for path in (ROOT / 'module/bin').glob('*.sh')]
                                + ['root-sepolicy.rule'])
-        },
-        'webui_source_sha256': {
-            str(path.relative_to(ROOT)): digest(path.read_bytes())
-            for path in payload_files(ROOT / 'webui/src')
         },
     }
     (output / 'build-info.json').write_text(json.dumps(info, indent=2, ensure_ascii=False) + '\n')

@@ -9,6 +9,12 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def msys(path):
+    """MSYS-style absolute path; backslash paths corrupt embedded sh code."""
+    path = Path(path)
+    return '/' + path.drive.lower()[:1] + path.as_posix()[2:] if path.drive else path.as_posix()
+
+
 class Performance(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -17,11 +23,13 @@ class Performance(unittest.TestCase):
         self.state = self.base / 'state'
         session = self.state / 'coex-session'
         session.mkdir(parents=True)
-        (session / 'boot').write_text('boot\n')
-        (session / 'class').write_text('cross5g\n')
+        # LF endings everywhere: CRLF leaves a trailing \r that breaks the
+        # script's boot/class string comparisons on Windows.
+        (session / 'boot').write_text('boot\n', newline='\n')
+        (session / 'class').write_text('cross5g\n', newline='\n')
         self.iface = self.base / 'wlan0'
         self.iface.mkdir()
-        (self.iface / 'ifindex').write_text('32\n')
+        (self.iface / 'ifindex').write_text('32\n', newline='\n')
         self.power = self.base / 'power'
         self.power.write_text('on')
         (self.base / 'bssid').write_text('44:f7:70:f7:fe:8b')
@@ -29,7 +37,7 @@ class Performance(unittest.TestCase):
         tools = self.base / 'tools'
         tools.mkdir()
         timeout = tools / 'timeout'
-        timeout.write_text('#!/bin/sh\nshift; exec "$@"\n')
+        timeout.write_text('#!/bin/sh\nshift; exec "$@"\n', newline='\n')
         timeout.chmod(0o755)
         iw = tools / 'iw'
         iw.write_text('''#!/usr/bin/env python3
@@ -45,20 +53,25 @@ elif a[:4]==['dev','wlan0','set','power_save']:
  (b/'power').write_text(a[4])
  with (b/'writes').open('a') as out:out.write(a[4]+'\\n')
 else:sys.exit(2)
-''')
+''', newline='\n')
         iw.chmod(0o755)
         code = (ROOT / 'tools/coex-transfer-performance.sh').read_text()
-        code = code.replace('/system/bin/', str(tools) + '/')
-        code = code.replace('/sys/class/net/wlan0', str(self.iface))
+        # POSIX paths: the substitutions land inside unquoted sh code where
+        # backslashes are eaten as escapes (C:\Users -> C:Users...).
+        code = code.replace('/system/bin/', tools.as_posix() + '/')
+        code = code.replace('/sys/class/net/wlan0', msys(self.iface))
         self.script = self.base / 'performance.sh'
-        self.script.write_text(code)
+        self.script.write_text(code, newline='\n')
         self.env = dict(os.environ, PERF_TEST=str(self.base))
 
     def run_steps(self, steps):
-        code = f'''STATE='{self.state}'
+        code = f'''STATE='{msys(self.state)}'
 boot_id() {{ echo boot; }}
 same_boot() {{ [ -r "$1" ] && [ "$(cat "$1")" = boot ]; }}
-. '{self.script}'
+# The sandbox denies mkdir's chmod; the real device keeps the -m 700 mode,
+# so the fixture drops it.
+mkdir() {{ [ "$1" = -m ] && shift 2; command mkdir "$@"; }}
+. '{msys(self.script)}'
 {steps}
 '''
         run = subprocess.run(['sh', '-eu', '-c', code], env=self.env,

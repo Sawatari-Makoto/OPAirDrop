@@ -46,10 +46,6 @@ su -c 'sh /data/adb/modules/opairshare/bin/mount-check.sh /data/adb/modules/opai
 
 模块不会自行创建系统目录或替换管理器的整套挂载流程。开机后才临时挂载 APK 无法补齐本次系统启动时已完成的包、权限和服务配置扫描。
 
-## WebUI
-
-页面使用兼容 `ksu.exec(command, options, callback)` 的 Root WebUI 桥。KernelSU、支持该接口的 APatch 或独立宿主可承载页面；Magisk 管理器本身不提供 WebUI。未发现桥接接口时，页面会提示使用兼容宿主。
-
 ## 主机验证
 
 ```sh

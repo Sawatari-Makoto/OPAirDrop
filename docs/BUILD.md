@@ -1,15 +1,14 @@
 # 构建说明
 
-本文从仓库根目录介绍各组件的构建方式，以及它们在 Root 模块中的装配位置。WebUI、原生助手和 OShare 桥接可分别构建；Mosey 使用指定版本的 APK 作为输入，内核组件使用 Linux 上的官方平台源码树。Root 管理器、挂载方式及 WebUI 宿主兼容说明见 [Root 与挂载兼容](ROOT-MOUNT-COMPATIBILITY.md)。
+本文从仓库根目录介绍各组件的构建方式，以及它们在 Root 模块中的装配位置。原生助手和 OShare 桥接可分别构建；Mosey 使用指定版本的 APK 作为输入，内核组件使用 Linux 上的官方平台源码树。Root 管理器及挂载方式兼容说明见 [Root 与挂载兼容](ROOT-MOUNT-COMPATIBILITY.md)。
 
 ## 正式发行包
 
-`tools/package-coex.py` 使用已校验的实机自动共存栈和当前源码构建的 OShare 桥接、WebUI，生成正式模块。发行包保留 mode3 驱动、Mosey 自动共存策略、对应 build ID，以及 2.4 / 5 / 6 GHz 下所选的 Fast 配置。内核和 Mosey APK 来自归档快照，不由当前源码重新编译；输入哈希和脚本覆盖记录位于包内 `build-info.json`。
+`tools/package-coex.py` 使用已校验的实机自动共存栈和当前源码构建的 OShare 桥接，生成正式模块。发行包保留 mode3 驱动、Mosey 自动共存策略、对应 build ID，以及 2.4 / 5 / 6 GHz 下所选的 Fast 配置。内核和 Mosey APK 来自归档快照，不由当前源码重新编译；输入哈希和脚本覆盖记录位于包内 `build-info.json`。
 
 ```sh
 python3 tools/build-native.py --sdk "$ANDROID_HOME" --ndk "$ANDROID_NDK_HOME"
 (cd oshare && ./gradlew :app:assembleRelease --offline)
-(cd webui && npm run check && npm run build)
 python3 tools/package-coex.py \
   --snapshot local-inputs/coex/module.tar \
   --bridge oshare/app/build/outputs/apk/release/app-release.apk \
@@ -28,7 +27,6 @@ python3 tools/check-coex.py dist/OPAirDrop-v1.0.23-PJZ110.zip
 | 组件 | 环境与依赖 |
 | --- | --- |
 | 通用工具 | Git、Python 3.10+ |
-| WebUI | Node.js 24、npm；依赖版本由 `webui/package-lock.json` 固定 |
 | Android 桥接 | JDK 17、Android SDK Platform 37、Gradle 8.13、AGP 8.13.2 |
 | 原生助手 | Android SDK Platform 36、Build Tools 36.0.0、NDK 28.2.13676358、JDK 17 |
 | Mosey APK 构建 | Apktool、JDK 17、Android SDK Platform 36、Build Tools 36.0.0 |
@@ -72,28 +70,7 @@ sdkmanager \
 
 当前 callback 构建器对应 Mosey60715。原版 APK、splits 和构建时使用的服务文件应来自同一套适配记录。`local-inputs/reference-r27/` 保存原平台的参考依赖与文件布局。
 
-## 3. WebUI
-
-```sh
-cd "$OPAIRSHARE_REPO/webui"
-npm ci
-npm run check
-npm run build
-cd "$OPAIRSHARE_REPO"
-node tests/test-api.mjs
-node tests/test-webui-refresh.mjs
-```
-
-产物为 `webui/dist/`。Vite 使用相对资源路径 `base: './'`，装配到模块的 `webroot/` 后由 KernelSU 加载。
-
-| 文件 | 作用 |
-| --- | --- |
-| `src/App.vue` | 状态页、速度历史、设置、关于和日志页 |
-| `src/api.ts` | KernelSU `ksu.exec` 适配与类型定义 |
-| `src/style.css` | 布局与样式 |
-| `package-lock.json` | npm 依赖锁定 |
-
-## 4. 原生助手与 Wi-Fi 会话助手
+## 3. 原生助手与 Wi-Fi 会话助手
 
 ```sh
 cd "$OPAIRSHARE_REPO"
@@ -115,7 +92,7 @@ python3 tools/build-native.py \
 
 输出目录为 `build/native/`。`build.json` 保存各运行产物的构建记录。
 
-## 5. OShare 桥接 APK
+## 4. OShare 桥接 APK
 
 ```sh
 cd "$OPAIRSHARE_REPO/oshare"
@@ -136,11 +113,11 @@ release 关闭调试，保留反射及 DexKit 所需代码。debug 和 release �
 
 主机测试覆盖回调代理、发送任务、设备展示、发现频道选择与 APK 内容指纹。`tests/run-android.sh` 和 `tests/run-appearance-android.sh` 提供 Android 设备测试入口。
 
-## 6. Mosey 回调与发现补丁
+## 5. Mosey 回调与发现补丁
 
 先构建传输回调版本，再用它构建联网发现版本。两个构建器均修改传入的解码目录，每次构建使用单独的工作目录。
 
-### 6.1 传输回调
+### 5.1 传输回调
 
 将原版输入放到 `local-inputs/mosey/base.apk`，然后执行：
 
@@ -166,7 +143,7 @@ build/mosey/callback/build.json
 
 构建器对照 `smali-inputs.json`，修改 `ccu`、`cee`、`cen` 和 `dly`，重建 `classes2.dex`。
 
-### 6.2 联网发现
+### 5.2 联网发现
 
 解码上一阶段生成的回调 APK：
 
@@ -185,13 +162,13 @@ python3 mosey/discovery/build.py --help
 
 模块中的原版 APK 用于包扫描与 provider 认证，构建后的 APK 放在 `payload/app-callback/base.apk`，由运行脚本在开机完成后挂载。
 
-## 7. 内核组件
+## 6. 内核组件
 
-### 7.1 固定上游基线
+### 6.1 固定上游基线
 
 同步脚本使用 OnePlusOSS 的 `oneplus/sm8750` 分支与 `oneplus_13_b.xml` 清单，并在 local manifest 中固定 common、msm-kernel 和 modules/devicetree 的源码版本。具体版本配置位于 `tools/kernel/sync-source.sh`。
 
-### 7.2 准备平台源码
+### 6.2 准备平台源码
 
 在 Linux ext4 构建卷中设置：
 
@@ -219,7 +196,7 @@ $OPAIRSHARE_BUILD_ROOT/
 
 `source-lock.xml` 记录同步后的完整提交清单，`baseline-wlan/` 接收原厂 WLAN 基线构建产物。
 
-### 7.3 集成源码
+### 6.3 集成源码
 
 内核集成按“基础补丁 → 当前覆盖层 → 构建配置”进行：
 
@@ -240,7 +217,7 @@ CONFIG_WONDER_SUPPORT=y
 
 Wonder 在平台的 Oplus 模块构建图中与目标 `mac80211`、`cfg80211` 依赖一起构建；`kernel/wonder/Makefile.include` 中的头文件和 symvers 路径随平台输出目录配置。
 
-### 7.4 构建 WLAN、provider 与 Wonder
+### 6.4 构建 WLAN、provider 与 Wonder
 
 ```sh
 bash "$OPAIRSHARE_TOOLS_DIR/build-wlan-feature-check.sh"
@@ -269,7 +246,7 @@ provider 与绑定探针的 Bazel target 分别是：
 
 模块装配需要 `qca_cld3_peach_v2.ko`、`mac80211.ko`、`wonder.ko` 与 `opairshare_wonder_provider.ko`。
 
-### 7.5 ABI 与构建身份
+### 6.5 ABI 与构建身份
 
 检查原厂模块导入，并与同次构建的 symvers 对照：
 
@@ -298,9 +275,9 @@ python3 tools/kernel/module_exports.py --dump /path/to/module.ko
 
 主机回归入口为 `python3 tests/test_compatibility.py`。发行 ZIP 不带机型后缀，机型不参与设备准入判断。通过检测不代替目标设备上的驱动加载、固件与实际收发验证。
 
-## 8. 模块装配
+## 7. 模块装配
 
-### 8.1 当前发行包
+### 7.1 当前发行包
 
 正式发行使用上文的 `tools/package-coex.py`。`tools/package.py` 保留为 reference-r27 平台的对照装配入口，不用于替换实机自动共存栈：
 
@@ -310,7 +287,7 @@ python3 tests/test_lsposed.py
 python3 tools/package.py
 ```
 
-执行前完成上文的 WebUI、原生助手和 OShare release APK 构建。输出文件名根据当前版本生成。模块名称、版本号、描述及在线更新地址以 `module/module.prop` 为准。
+执行前完成上文的原生助手和 OShare release APK 构建。输出文件名根据当前版本生成。模块名称、版本号、描述及在线更新地址以 `module/module.prop` 为准。
 
 打包器逐项核验参考二进制的 SHA256，保留其实际导出的内核模块名、sysfs 接口及回调属性名，填入对应的内核 build-id。模块路径、状态目录和最新用户态助手继续使用当前仓库名称。OShare 对参考回调属性提供兼容读取。本流程不会重编译内核或 Mosey 补丁；来源记录位于 ZIP 内的 `build-info.json`。
 
@@ -320,7 +297,7 @@ v1.0.1 集成 Unlock CN GMS v3.8。`bin/setup-gms.sh` 在安装时读取 `bin/gm
 
 运行 `python3 tests/test_gms_unlock.py` 检查 XML 保留、11 个位置、无匹配配置、重复安装、独立模块接管所需的已清理配置、目标路径、挂载失败及只读失败回滚路径。测试通过隔离的文件系统与 mount 替身执行。v1.0.4 起服务启动不再遍历文件清单或校验组件哈希；APK 原版/回调挂载切换仍按对应版本识别文件，避免混用认证状态。
 
-### 8.2 发布与在线更新
+### 7.2 发布与在线更新
 
 KernelSU 读取 `module.prop` 的 `updateJson`，该地址指向 GitHub 最新正式 Release 的 `update.json` 附件。JSON 包含 `version`、整数 `versionCode`、`zipUrl` 和 `changelog`；下载和日志链接固定到对应版本标签，避免指向其他版本。`tools/package-coex.py` 自动从实际 ZIP 内的版本信息及 `CHANGELOG.md` 生成这些文件，校验全部文件的 SHA256，遇到版本、标签、模块 ID、文件名或更新源不一致时拒绝生成。
 
@@ -339,7 +316,7 @@ python3 tools/release.py --zip dist/OPAirDrop-v1.0.2-PJZ110.zip --out dist --tag
 
 首次 Release 发布前，线上更新入口不可访问；此前不含 `updateJson` 的旧版本需要手动安装新版一次。未发布时，本地生成的更新文件是待上传产物。
 
-### 8.3 组件手动装配
+### 7.3 组件手动装配
 
 当前构建入口按组件提供，模块使用以下布局装配：
 
@@ -352,7 +329,6 @@ module/
 ├── uninstall.sh
 ├── sepolicy.rule                    ← 安装时按实际 Root 域生成，不预置到 ZIP
 ├── bin/                            ← 含 root-runtime.sh、root-sepolicy.rule、mount-check.sh
-├── webroot/                         ← webui/dist/
 ├── companion/                       ← OShare 桥接 APK
 ├── payload/
 │   ├── kernel/                      ← 四个内核模块
@@ -373,8 +349,7 @@ module/
 cd "$OPAIRSHARE_REPO"
 mkdir -p build/package/module
 cp -R module/. build/package/module/
-mkdir -p build/package/module/webroot build/package/module/payload/native
-cp -R webui/dist/. build/package/module/webroot/
+mkdir -p build/package/module/payload/native
 cp build/native/libopairshare_capability.so build/package/module/payload/native/
 cp build/native/libopairshare_config.so build/package/module/payload/native/
 cp build/native/libopairshare_channel.so build/package/module/payload/native/
@@ -384,7 +359,7 @@ cp build/native/session-wifi.jar build/package/module/payload/native/
 
 其余产物按布局表放入对应目录。OShare APK 固定放在 `companion/OShareAirDrop.apk`，自动激活助手放在 `payload/native/lsposed-setup.jar`。
 
-装配后为原版 APK、补丁 APK 和模块运行文件生成安装器与运行脚本所需的文件清单。模块内路径以装配目录为根；清单覆盖模块配置、入口脚本、`bin/`、`webroot/`、`payload/` 和 `system/`。文件权限按 `customize.sh` 设置，ZIP 中保留 Unix 文件模式。
+装配后为原版 APK、补丁 APK 和模块运行文件生成安装器与运行脚本所需的文件清单。模块内路径以装配目录为根；清单覆盖模块配置、入口脚本、`bin/`、`payload/` 和 `system/`。文件权限按 `customize.sh` 设置，ZIP 中保留 Unix 文件模式。
 
 在装配目录完成校验后打包：
 
@@ -396,7 +371,7 @@ zip -r ../../../dist/OPAirShare.zip .
 cd "$OPAIRSHARE_REPO"
 ```
 
-## 9. 检查与验收
+## 8. 检查与验收
 
 源码与主机回归：
 
@@ -404,14 +379,12 @@ cd "$OPAIRSHARE_REPO"
 python3 tools/check.py
 python3 tests/test_settings.py
 python3 tests/test_history.py
-node tests/test-api.mjs
-node tests/test-webui-refresh.mjs
 sh oshare/tests/run.sh
 ```
 
 设备验收按以下顺序记录：
 
-1. 安装模块，重启后读取 `control.sh status` 与 WebUI 三项服务状态。
+1. 安装模块，重启后读取 `control.sh status` 核对三项服务状态。
 2. 分别在 STA 5745 MHz 与 5200 MHz 下打开分享界面，记录发现设备、无线参数和普通 Wi-Fi 连通性。
 3. 双向传输文件，核对接收文件的大小与内容，检查进度、取消、连续发送和重新进入界面的行为。
 4. 关闭分享界面，检查 radio、matcher、pending 与共存快照的释放状态。

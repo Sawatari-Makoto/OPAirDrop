@@ -11,9 +11,14 @@ ROOT = Path(__file__).resolve().parents[1]
 class ChooserForeground(unittest.TestCase):
     def classify(self, record, mode='both', failure=False):
         source = (ROOT / 'module/bin/ui-lifecycle.sh').read_text()
-        function = source.split('foreground_state() {', 1)[1].split('\nclose_session()', 1)[0]
-        function = 'foreground_state() {' + function
-        function = function.replace('/system/bin/timeout 4 /system/bin/dumpsys', 'fake_dumpsys')
+        # Extract foreground_matches() too: the production refactor moved the
+        # record matching into its own helper defined before foreground_state(),
+        # and foreground_state() calls it directly.
+        function = source.split('foreground_matches() {', 1)[1].split('\nclose_session()', 1)[0]
+        function = 'foreground_matches() {' + function
+        # The production script raised the dumpsys budget from 4s to 6s when
+        # the foreground re-read was added; keep the fixture in sync.
+        function = function.replace('/system/bin/timeout 6 /system/bin/dumpsys', 'fake_dumpsys')
         with tempfile.TemporaryDirectory() as work:
             script = '''active_share_mode() { printf '%s\\n' "$MODE"; }
 fake_dumpsys() { [ "$FAIL" = 0 ] || return 1; printf '%s\\n' "$RECORD"; }
@@ -35,7 +40,11 @@ STATE=$WORK
         for activity in ['.ResolverActivity', '.ChooserActivityOther', '.ChooserActivityLauncherOther']:
             self.assertEqual(self.classify('topResumedActivity= com.android.intentresolver/' + activity + ' t12}'), 'closed')
         self.assertEqual(self.classify('topResumedActivity= unrelated.package/.ChooserActivity t12}'), 'closed')
-        self.assertEqual(self.classify('topResumedActivity= com.android.intentresolver/.ChooserActivity t12}', 'quickshare'), 'closed')
+        # A visible ChooserActivity now counts as open in every mode,
+        # including quickshare: hiding it while the share mode property was
+        # mid-switch closed the receiver gate and dropped the device from
+        # the iPhone AirDrop list (see foreground_matches in ui-lifecycle.sh).
+        self.assertEqual(self.classify('topResumedActivity= com.android.intentresolver/.ChooserActivity t12}', 'quickshare'), 'open')
 
     def test_existing_entrances_and_unknown_state(self):
         self.assertEqual(self.classify('topResumedActivity= com.coloros.oshare/.ui.ShareActivity t12}'), 'open')

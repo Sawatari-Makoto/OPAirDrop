@@ -13,12 +13,13 @@ class Settings(unittest.TestCase):
         self.params=self.base/'parameters';self.params.mkdir()
         self.module=self.base/'module';self.bin=self.module/'bin';self.bin.mkdir(parents=True)
         self.tools=self.base/'tools';self.tools.mkdir()
-        self.common=f'''STATE='{self.state}'
+        self.common=f'''STATE='{self.state.as_posix()}'
 PKG=com.google.android.mosey
 init_state() {{ :; }}
-same_boot() {{ return 1; }}
+same_boot() {{ return 0; }}
 pid_is() {{ return 1; }}
-framework() {{ cat '{self.base}/wifi'; }}
+driver_rx_filter_idle() {{ return 0; }}
+framework() {{ cat '{self.base.as_posix()}/wifi'; }}
 '''
         (self.bin/'common.sh').write_text(self.common)
         (self.module/'module.prop').write_text('version=test-r25\n')
@@ -27,21 +28,23 @@ framework() {{ cat '{self.base}/wifi'; }}
         for name,code in [('id','echo 0'),('flock','exit "${TEST_LOCK_BUSY:-0}"')]:
             p=self.tools/name;p.write_text('#!/bin/sh\n'+code+'\n');p.chmod(0o755)
         self.env=dict(os.environ,PATH=str(self.tools)+os.pathsep+os.environ['PATH'])
-        for name in ['airdrop-name.sh', 'receive-directory.sh', 'coex-wifi.sh', 'webui-status.sh', 'share-mode.sh']:
-            (self.bin/name).write_text((ROOT/'module/bin'/name).read_text().replace('/system/bin/',str(self.tools)+'/'))
+        for name in ['airdrop-name.sh', 'receive-directory.sh', 'coex-wifi.sh', 'share-mode.sh', 'idle-sleep.sh']:
+            (self.bin/name).write_text((ROOT/'module/bin'/name).read_text().replace('/system/bin/',self.tools.as_posix()+'/'))
         for name,code in [
             ('getprop','case "$1" in ro.vendor.oplus.market.enname) echo "${TEST_MARKET_NAME-OnePlus 13}";;ro.product.model) echo PJZ110;;debug.opairshare.share_mode) cat "$SHARE_MODE_ACTIVE_STORE" 2>/dev/null || true;;esac'),
             ('setprop','[ "${TEST_MODE_PROPERTY_FAIL:-0}" = 0 ] || exit 1; [ "$1" != debug.opairshare.share_mode ] || printf "%s" "$2" > "$SHARE_MODE_ACTIVE_STORE"'),
             ('xxd','exec /usr/bin/xxd "$@"'),
             ('settings', 'store="$NAME_STORE"; case "$3" in opairshare_receive_directory_hex) store="$DIRECTORY_STORE";;opairshare_share_mode) store="$SHARE_MODE_STORE";;esac; case "$1" in get) cat "$store" 2>/dev/null || echo null;;put) [ "${TEST_NAME_WRITE_FAIL:-0}" = 0 ] || exit 1; printf "%s" "$4" > "$store";;delete) [ "${TEST_NAME_WRITE_FAIL:-0}" = 0 ] || exit 1; rm -f "$store";;esac')]:
             tool=self.tools/name;tool.write_text('#!/bin/sh\n'+code+'\n');tool.chmod(0o755)
-        self.env['NAME_STORE']=str(self.base/'name-store')
-        self.env['DIRECTORY_STORE']=str(self.base/'directory-store')
-        self.env['SHARE_MODE_STORE']=str(self.base/'share-mode-store')
-        self.env['SHARE_MODE_ACTIVE_STORE']=str(self.base/'share-mode-active-store')
+        def msys_path(p):
+            s=Path(p).as_posix();drive,rest=s.split(':',1);return '/'+drive.lower()+rest
+        self.env['NAME_STORE']=msys_path(self.base/'name-store')
+        self.env['DIRECTORY_STORE']=msys_path(self.base/'directory-store')
+        self.env['SHARE_MODE_STORE']=msys_path(self.base/'share-mode-store')
+        self.env['SHARE_MODE_ACTIVE_STORE']=msys_path(self.base/'share-mode-active-store')
         self.script=self.bin/'settings.sh'
-        self.script.write_text((ROOT/'module/bin/settings.sh').read_text().replace('/sys/module/qca_cld3_peach_v2/parameters',str(self.params)).replace('/system/bin/sh','sh').replace('/system/bin/settings',str(self.tools/'settings')).replace('/system/bin/setprop',str(self.tools/'setprop')))
-        self.turbo=(ROOT/'module/bin/turbo.sh').read_text().replace('/sys/module/qca_cld3_peach_v2/parameters',str(self.params))
+        self.script.write_text((ROOT/'module/bin/settings.sh').read_text().replace('/sys/module/qca_cld3_peach_v2/parameters',self.params.as_posix()).replace('/system/bin/sh','sh').replace('/system/bin/settings',(self.tools/'settings').as_posix()).replace('/system/bin/setprop',(self.tools/'setprop').as_posix()))
+        self.turbo=(ROOT/'module/bin/turbo.sh').read_text().replace('/sys/module/qca_cld3_peach_v2/parameters',self.params.as_posix())
         (self.bin/'turbo.sh').write_text(self.turbo)
         self.original={'opairshare_channel_state':'cookie=1 busy=0 fault=0 error=0 accepting=0 vdev=255 freq=0',
             'opairshare_awdl_rx_mac_filter':'used=0 armed=0 pending=0 active=0 fault=0', 'opairshare_bridge_pending':'0',
@@ -52,7 +55,7 @@ framework() {{ cat '{self.base}/wifi'; }}
         for key,value in self.original.items():(self.params/key).write_text(value+'\n')
         (self.state/'autostart').touch();(self.state/'turbo-fast').touch()
     def run_api(self,*args,ok=True):
-        r=subprocess.run(['sh',str(self.script),*args],env=self.env,capture_output=True,text=True)
+        r=subprocess.run(['sh',self.script.as_posix(),*args],env=self.env,capture_output=True,text=True)
         if ok:self.assertEqual(r.returncode,0,r.stderr+r.stdout)
         else:self.assertNotEqual(r.returncode,0,r.stdout)
         return r

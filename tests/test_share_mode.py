@@ -55,11 +55,14 @@ class ShareModeLifecycle(ReceiveLifecycle):
         self.assertNotIn('provider:ensure', log)
         self.assertNotIn('ready:1', log)
 
-    def test_quickshare_mode_activates_native_panel_and_cleans_up(self):
+    def test_quickshare_mode_leaves_native_panel_to_the_system(self):
+        # v1.2.0: quickshare mode never arms the module's provider or panel,
+        # even for quickshare foreground frames - the stock quickshare app
+        # owns that path entirely.
         self.set_mode('quickshare')
         log = self.run_lifecycle([{'foreground': 'quickshare'}] * 2 + [{}] * 4)
-        self.assertIn('provider:ensure', log)
-        self.assertIn('provider:release', log)
+        self.assertNotIn('provider:ensure', log)
+        self.assertNotIn('provider:release', log)
         self.assertNotIn('oshare:start', log)
         self.assertNotIn('ready:1', log)
 
@@ -76,7 +79,10 @@ class ShareModeLifecycle(ReceiveLifecycle):
         self.assertIn('provider:release',log)
         self.assertIn('property:debug.opairshare.share_mode:quickshare',log)
         self.assertEqual((self.base/'prop-debug.opairshare.share_mode').read_text(),'quickshare')
-        self.assertNotIn('wifi:',log)
+        # v1.2.0: the release path restores the captured STA network once,
+        # and quickshare mode never re-arms AWDL afterwards.
+        self.assertEqual(log.count('wifi:capture'),1)
+        self.assertEqual(log.count('wifi:restore'),1)
 
     def test_switch_waits_for_transfer_and_bridge_publication_before_releasing(self):
         self.set_mode('both')
@@ -86,7 +92,10 @@ class ShareModeLifecycle(ReceiveLifecycle):
         lines=log.splitlines()
         self.assertGreater(lines.index('provider:release'),lines.index('tick:2 ready:0 provider:True'))
         self.assertEqual(log.count('provider:release'),1)
-        self.assertNotIn('wifi:',log)
+        # v1.2.0: single release restores the STA network exactly once and
+        # no re-arm happens while quickshare mode is active.
+        self.assertEqual(log.count('wifi:capture'),1)
+        self.assertEqual(log.count('wifi:restore'),1)
 
     def test_quickshare_to_oshare_starts_receiver_without_reboot(self):
         self.set_mode('quickshare')
@@ -100,7 +109,10 @@ class ShareModeLifecycle(ReceiveLifecycle):
         log=self.run_lifecycle([{'frequency':2447}]*2)
         self.assertIn('provider:ensure',log)
         self.assertIn('ready:1',log)
-        self.assertNotIn('wifi:',log)
+        # v1.2.0: legacy off markers are ignored; the armed session captures
+        # the STA once and no release/restore ever happens.
+        self.assertEqual(log.count('wifi:capture'),1)
+        self.assertNotIn('wifi:restore',log)
 
 
 def load_tests(loader, tests, pattern):

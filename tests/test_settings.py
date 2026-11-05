@@ -8,7 +8,7 @@ class Settings(m.Settings):
  def setUp(self):
   super().setUp()
   self.exports=self.base/'Download/OPAirShare'
-  self.script.write_text((HERE.parent/'module/bin/settings.sh').read_text().replace('/sys/module/qca_cld3_peach_v2/parameters',str(self.params)).replace('/system/bin/sh','sh').replace('/sdcard/Download/OPAirShare',str(self.exports)).replace('/system/bin/settings',str(self.tools/'settings')).replace('/system/bin/setprop',str(self.tools/'setprop')))
+  self.script.write_text((HERE.parent/'module/bin/settings.sh').read_text().replace('/sys/module/qca_cld3_peach_v2/parameters',self.params.as_posix()).replace('/system/bin/sh','sh').replace('/sdcard/Download/OPAirShare',self.exports.as_posix()).replace('/system/bin/settings',(self.tools/'settings').as_posix()).replace('/system/bin/setprop',(self.tools/'setprop').as_posix()))
  def test_log_export_uses_fixed_directory_and_includes_status(self):
   (self.state/'boot-start.log').write_text('BOOT_READY\n')
   (self.state/'supervisor.log').write_text('DISCOVERY_READY\n')

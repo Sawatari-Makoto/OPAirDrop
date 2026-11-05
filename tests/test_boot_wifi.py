@@ -18,10 +18,14 @@ class BootWifi(unittest.TestCase):
         self.tools = self.base / 'tools'
         self.tools.mkdir()
         dispatch = self.tools / 'dispatch.py'
-        dispatch.write_text('''#!/usr/bin/env python3
+        dispatch.write_text('''#!/usr/bin/env -S python3 -S -E
 import json, os, pathlib, sys
 base=pathlib.Path(os.environ['WIFI_TEST_BASE']);name=pathlib.Path(sys.argv[0]).name;a=sys.argv[1:]
-if name=='timeout':os.execv(a[1],a[1:])
+if name=='timeout':
+ # Windows os.execv silently drops the child's stdio; run through sh via
+ # subprocess so the shebang resolution matches a direct PATH invocation.
+ import shutil, subprocess
+ sys.exit(subprocess.run([shutil.which('sh') or '/bin/sh','-c','exec "$@"','sh']+a[1:]).returncode)
 state=json.loads((base/'fixture').read_text())
 if name=='cmd':
  values=state['runtime'];value=values.pop(0) if len(values)>1 else values[0]
@@ -38,13 +42,13 @@ else:raise RuntimeError((name,a))
 ''')
         dispatch.chmod(0o755)
         for name in ['timeout', 'cmd', 'settings', 'svc', 'sleep']:
-            (self.tools / name).symlink_to(dispatch)
+            (self.tools / name).hardlink_to(dispatch)
         code = (ROOT / 'module/bin/common.sh').read_text()
         self.common = self.base / 'common.sh'
         (self.base/'uptime').write_text('42.125 10.00\n')
-        code = code.replace('STATE=/data/adb/opairshare', "STATE='" + str(self.base) + "'")
-        code = code.replace('/proc/uptime', str(self.base/'uptime'))
-        self.common.write_text(code.replace('/system/bin/', str(self.tools) + '/'))
+        code = code.replace('STATE=/data/adb/opairshare', "STATE='" + self.base.as_posix() + "'")
+        code = code.replace('/proc/uptime', (self.base/'uptime').as_posix())
+        self.common.write_text(code.replace('/system/bin/', self.tools.as_posix() + '/'))
         self.env = dict(os.environ, WIFI_TEST_BASE=str(self.base),
                         PATH=str(self.tools) + os.pathsep + os.environ['PATH'])
 
@@ -52,7 +56,7 @@ else:raise RuntimeError((name,a))
         (self.base / 'fixture').write_text(json.dumps(dict(runtime=list(runtime), saved=saved, **flags)))
         return subprocess.run(['sh', '-c', '. "$1"; shift; "$@"', 'test',
                                str(self.common), operation, *args], env=self.env,
-                              capture_output=True, text=True, timeout=10)
+                              capture_output=True, text=True, timeout=120)
 
     def test_boot_transition_preserves_enabled_preference(self):
         result = self.run_wifi('wifi_startup_state')

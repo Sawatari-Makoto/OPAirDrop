@@ -23,7 +23,7 @@ class InstallerTests(unittest.TestCase):
         self.state = self.adb / 'opairshare'
         self.script = self.root / 'install.sh'
         text = (ROOT / 'module/bin/install-oshare.sh').read_text()
-        self.script.write_text(text.replace('/data/adb', str(self.adb)).replace('/system/bin', str(self.system)))
+        self.script.write_text(text.replace('/data/adb', self.adb.as_posix()).replace('/system/bin', self.system.as_posix()))
         self.env = dict(os.environ, PATH=str(self.system) + ':' + os.environ['PATH'], BOOT_COMPLETE='1')
         self.command('getprop', 'echo "$BOOT_COMPLETE"')
         self.command('pm', '''
@@ -51,7 +51,11 @@ esac''')
             db.touch()
 
     def run_script(self, phase='install'):
-        return subprocess.run(['sh', str(self.script), str(self.base), phase], env=self.env, capture_output=True, text=True)
+        # MSYS-style POSIX path for the module argument: the sandbox shell
+        # wrapper rejects embedded drive prefixes (C:/...) in file operations.
+        p = self.base
+        base = '/' + p.drive.lower()[:1] + p.as_posix()[2:] if p.drive else p.as_posix()
+        return subprocess.run(['sh', self.script.as_posix(), base, phase], env=self.env, capture_output=True, text=True)
 
     def test_absent_lsposed_skips_package_manager(self):
         result = self.run_script()

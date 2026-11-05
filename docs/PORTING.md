@@ -33,7 +33,7 @@ sh /data/adb/modules/opairshare/bin/control.sh status
 | 3 | 重新编译后更新 `local-inputs/<device>/kernel-identity.json`，打包脚本会写入新的 build-id |
 | 4 | 若 `driver_gap` 指向能力缺失，说明该固件的厂商 WLAN 源码不含 AWDL 相关补丁，需按第 2 节合入覆盖层 |
 
-用户态（Mosey、OShare 桥接、WebUI）与内核无关，同固件系列通常可直接复用。
+用户态（Mosey、OShare 桥接、配套 App）与内核无关，同固件系列通常可直接复用。
 
 ## 1. 收集设备信息
 

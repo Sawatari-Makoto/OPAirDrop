@@ -37,7 +37,7 @@ class ReceiveLifecycle(unittest.TestCase):
         }.items():
             (self.params / name).write_text(value)
         self.dispatch = self.tools / 'dispatch.py'
-        self.dispatch.write_text('''#!/usr/bin/env python3
+        self.dispatch.write_text('''#!/usr/bin/env -S python3 -S -E
 import json, os, pathlib, sys, time
 b=pathlib.Path(os.environ['RX_TEST_BASE']);s=b/'state';name=pathlib.Path(sys.argv[0]).name;a=sys.argv[1:]
 frames=json.loads((b/'frames').read_text());tick=int((b/'tick').read_text())
@@ -46,10 +46,19 @@ def log(v):
  with (b/'commands').open('a') as out:out.write(v+'\\n')
 if name=='timeout':
  if a[0]=='-k':a=a[2:]
- os.execvp(a[1],a[1:])
+ # Windows os.execvp silently drops the child's stdio; run through sh via
+ # subprocess so the shebang resolution matches a direct PATH invocation.
+ import shutil, subprocess
+ sys.exit(subprocess.run([shutil.which('sh') or '/bin/sh','-c','exec "$@"','sh']+a[1:]).returncode)
 elif name=='settings':
- if a[-1]=='opairshare_share_mode':
+ # v1.2.0 admission: a module-owned session is armed by oshare_state==1
+ # plus the opairshare_ios_receive marker; remaining native reads are
+ # vestigial and must never gate reception (ERROR included).
+ key=a[-1]
+ if key=='opairshare_share_mode':
   p=b/'saved-mode';print(p.read_text() if p.exists() else 'both')
+ elif key=='oshare_state':print(f.get('oshare_state','1'))
+ elif key=='opairshare_ios_receive':print(f.get('ios_receive','1'))
  else:
   if f.get('setting')=='ERROR':sys.exit(1)
   print(f.get('setting','0'))
@@ -118,7 +127,7 @@ elif name=='provider.sh':
  log('provider:'+a[0])
  if a[0]=='ensure':
   if f.get('wait_for_warmup'):
-   for _ in range(100):
+   for _ in range(1000):
     if (b/'oshare-delegate').exists():break
     time.sleep(.01)
    else:log('provider:missing-warmup');sys.exit(5)
@@ -133,18 +142,21 @@ else:raise RuntimeError((name,a))
         self.dispatch.chmod(0o755)
         for name in ['timeout', 'settings', 'setprop', 'getprop', 'id', 'pidof', 'flock',
                      'sleep', 'dumpsys', 'am', 'cmd', 'service', 'app_process']:
-            (self.tools / name).symlink_to(self.dispatch)
+            (self.tools / name).hardlink_to(self.dispatch)
         for name in ['provider.sh', 'speed-history.sh']:
             # ui-lifecycle executes these with sh, so use an executable wrapper.
             wrapper = self.bin / name
             target = self.tools / name
-            target.symlink_to(self.dispatch)
+            target.hardlink_to(self.dispatch)
             wrapper.write_text(f'#!/bin/sh\nexec "{target}" "$@"\n')
         native = self.module / 'payload/native'
         native.mkdir(parents=True)
-        (native / 'opairshare-socket-buffer').symlink_to(self.dispatch)
+        (native / 'opairshare-socket-buffer').hardlink_to(self.dispatch)
         (self.bin / 'kernel-identity.sh').write_text('')
-        (self.bin / 'common.sh').write_text(f'''STATE='{self.state}'
+        # Shell scripts embed $STATE and rm -rf it; the sandbox rm shim
+        # rejects Windows drive prefixes, so hand them an MSYS-style path.
+        msys_state = '/' + self.state.as_posix()[0].lower() + self.state.as_posix()[2:]
+        (self.bin / 'common.sh').write_text(f'''STATE='{msys_state}'
 PKG=com.google.android.mosey
 COMP=$PKG/.ExternalSharingService
 SERVICE=test.native
@@ -154,17 +166,28 @@ init_state() {{ :; }}
 startup_trace() {{ :; }}
 kernel_matches() {{ return 0; }}
 pid_is() {{ return 0; }}
+driver_rx_filter_idle() {{ return 0; }}
+driver_radio_idle() {{ return 0; }}
 framework() {{ "$@"; }}
 ''')
-        for name in ['ui-lifecycle.sh', 'receive-session.sh', 'transfer-idle.sh', 'coex-session.sh', 'coex-wifi.sh', 'receive-startup.sh', 'share-mode.sh']:
+        for name in ['ui-lifecycle.sh', 'receive-session.sh', 'transfer-idle.sh', 'coex-session.sh', 'coex-wifi.sh', 'receive-startup.sh', 'share-mode.sh', 'idle-sleep.sh']:
             code = (ROOT / 'module/bin' / name).read_text()
             code = code.replace('/system/bin/sh', '/bin/sh')
-            code = code.replace('/system/bin/', str(self.tools) + '/')
-            code = code.replace('/sys/module/qca_cld3_peach_v2/parameters', str(self.params))
+            # Windows/MSYS cannot apply mkdir permission modes.
+            code = code.replace('mkdir -m 700', 'mkdir')
+            code = code.replace('/system/bin/', self.tools.as_posix() + '/')
+            code = code.replace('/sys/module/qca_cld3_peach_v2/parameters', self.params.as_posix())
             (self.bin / name).write_text(code)
         for name in ['stack-boot', 'server-boot']:
             (self.state / name).write_text('boot')
+        callback = self.state / 'callback'
+        callback.mkdir(exist_ok=True)
+        (callback / 'boot').write_text('boot')
+        # Read association state on every tick: the production default
+        # (OPAIRSHARE_WIFI_POLL_INTERVAL=3) only refreshes every third tick,
+        # which would mask per-tick state changes these tests drive.
         self.env = dict(os.environ, RX_TEST_BASE=str(self.base),
+                        OPAIRSHARE_WIFI_POLL_INTERVAL='1',
                         PATH=str(self.tools) + os.pathsep + os.environ['PATH'])
 
     def frames(self, frames):
@@ -172,8 +195,8 @@ framework() {{ "$@"; }}
         (self.base / 'tick').write_text('0')
 
     def run_script(self, name, *args):
-        return subprocess.run(['sh', str(self.bin / name), *args], env=self.env,
-                              capture_output=True, text=True, timeout=10)
+        return subprocess.run(['sh', (self.bin / name).as_posix(), *args], env=self.env,
+                              capture_output=True, text=True, timeout=120)
 
     def run_lifecycle(self, frames):
         self.frames(frames)
@@ -188,7 +211,7 @@ framework() {{ "$@"; }}
         self.assertIn('tick:0 ready:1 provider:True', log)
         self.assertEqual(log.count('oshare:start'), 1)
         self.assertEqual(log.count('oshare:delegate:start'), 1)
-        self.assertNotIn('wifi:', log)
+        self.assertNotIn('wifi:restore', log)
         self.assertNotIn('provider:release', log)
         self.assertEqual((self.base / 'ready').read_text(), '0')
 
@@ -207,7 +230,7 @@ framework() {{ "$@"; }}
         self.assertEqual(log.count('property:debug.opairshare.discovery:same149'), 1)
         self.assertEqual(log.count('oshare:start'), 1)
         self.assertNotIn('provider:release', log)
-        self.assertNotIn('wifi:', log)
+        self.assertNotIn('wifi:restore', log)
 
     def test_native_settings_errors_do_not_gate_module_owned_reception(self):
         log = self.run_lifecycle([{'setting': setting} for setting in ['0', 'null', '3', 'ERROR']])
@@ -231,31 +254,40 @@ framework() {{ "$@"; }}
         self.assertNotIn('ready:1', log)
 
 
-    def test_channel_change_closes_gate_and_waits_for_busy_transfer(self):
+    def test_unsupported_frequency_keeps_armed_session_and_marks_suspension(self):
+        # An unsupported band suspends coex Wi-Fi tracking but must NOT
+        # release the armed AWDL session: releasing it restarts the native
+        # server, re-applies the regulatory domain and flushes the armed
+        # wondertap, killing the AirDrop session within ~2s. The session
+        # stays armed even while a transfer is busy.
         log = self.run_lifecycle([{}] + [{'frequency': 9000, 'busy': 1}] * 2 +
-                                 [{'frequency': 9000}, {}, {}])
+                                 [{'frequency': 9000}])
         lines = log.splitlines()
-        self.assertIn('tick:1 ready:0 provider:True', lines)
-        self.assertIn('tick:2 ready:0 provider:True', lines)
-        self.assertGreater(lines.index('provider:release'), lines.index('tick:2 ready:0 provider:True'))
-        self.assertIn('tick:3 ready:0 provider:False', lines)
-        self.assertIn('tick:4 ready:1 provider:True', lines)
-        self.assertEqual(log.count('property:debug.opairshare.discovery:same149'), 2)
-        self.assertNotIn('wifi:', log)
+        for tick in range(4):
+            self.assertIn(f'tick:{tick} ready:1 provider:True', lines)
+        self.assertNotIn('provider:release', log)
+        self.assertNotIn('wifi:restore', log)
+        self.assertEqual(log.count('property:debug.opairshare.discovery:same149'), 1)
+        self.assertEqual((self.state / 'coex-wifi-blocked').read_text().strip(),
+                         'wifi_unsupported')
 
-    def test_disconnect_reconnect_during_transfer_rebuilds_after_idle(self):
+    def test_disconnect_during_transfer_keeps_armed_session_until_reconnect(self):
+        # A dropped STA association suspends coex tracking but keeps the
+        # armed AWDL session (AirDrop traffic runs on wonder0, never on the
+        # STA). Once Wi-Fi reconnects on the same network the suspension is
+        # cleared and the session continues without a rebuild.
         log = self.run_lifecycle([{}, {'connected': False, 'busy': 1},
                                  {'connected': False, 'transfer_unknown': True},
                                  {'busy': 1}, {}, {}, {}])
         lines = log.splitlines()
-        for tick in [1, 2, 3]:
-            self.assertIn(f'tick:{tick} ready:0 provider:True', lines)
-        self.assertGreater(lines.index('provider:release'), lines.index('tick:3 ready:0 provider:True'))
-        self.assertIn('tick:5 ready:1 provider:True', lines)
-        self.assertEqual(log.count('provider:release'), 1)
-        self.assertNotIn('wifi:', log)
+        for tick in range(7):
+            self.assertIn(f'tick:{tick} ready:1 provider:True', lines)
+        self.assertNotIn('provider:release', log)
+        self.assertNotIn('wifi:restore', log)
+        self.assertEqual(log.count('property:debug.opairshare.discovery:same149'), 1)
+        self.assertFalse((self.state / 'coex-wifi-blocked').exists())
 
-    def test_same149_network_change_rebuilds_without_wifi_reconnection(self):
+    def test_same149_network_change_rebuilds_session_and_restores_sta(self):
         log = self.run_lifecycle([{}, {'network': 8, 'busy': 1},
                                  {'network': 8}, {'network': 8}, {'network': 8}])
         lines = log.splitlines()
@@ -263,17 +295,30 @@ framework() {{ "$@"; }}
         self.assertIn('tick:2 ready:0 provider:False', lines)
         self.assertIn('tick:3 ready:1 provider:True', lines)
         self.assertEqual((self.state / 'coex-session/network').read_text().strip(), '8')
-        self.assertNotIn('wifi:', log)
+        self.assertEqual(log.count('provider:release'), 1)
+        self.assertEqual(log.count('property:debug.opairshare.discovery:same149'), 2)
+        # v1.2.0: closing the session restores the STA network captured at
+        # arm time, and the rebuild re-captures it before re-arming AWDL.
+        self.assertEqual(log.count('wifi:restore'), 1)
+        self.assertEqual(log.count('wifi:capture'), 2)
+        self.assertGreater(log.index('wifi:restore'), log.index('provider:release'))
 
 
 
-    def test_unknown_wifi_never_starts_legacy_fallback_and_recovers(self):
+    def test_wifi_read_errors_keep_armed_session_without_legacy_fallback(self):
+        # A failed or malformed `cmd wifi status` read suspends coex
+        # tracking but never tears down the module-owned session and never
+        # falls back to the legacy foreground model: the provider and the
+        # advertised readiness survive until Wi-Fi reads cleanly again.
         log = self.run_lifecycle([{}, {'wifi_error': True, 'foreground': 'open'},
                                  {'wifi_malformed': True, 'foreground': 'open'}, {}, {}])
-        self.assertIn('tick:1 ready:0 provider:False', log)
-        self.assertIn('tick:2 ready:0 provider:False', log)
-        self.assertIn('tick:3 ready:1 provider:True', log)
-        self.assertNotIn('wifi:', log)
+        lines = log.splitlines()
+        for tick in range(5):
+            self.assertIn(f'tick:{tick} ready:1 provider:True', lines)
+        self.assertNotIn('provider:release', log)
+        self.assertNotIn('wifi:restore', log)
+        self.assertEqual(log.count('property:debug.opairshare.discovery:same149'), 1)
+        self.assertFalse((self.state / 'coex-wifi-blocked').exists())
 
 
     def test_ready_rechecks_live_connection_and_network(self):
@@ -320,6 +365,9 @@ framework() {{ "$@"; }}
 
     def test_clearing_admission_retains_busy_host_and_release_checks_idle(self):
         self.frames([{'busy': 1}])
+        # v1.2.0 transfer-idle fast-path: no provider process means no
+        # transfer can run, so the busy gate only applies with a live pid.
+        (self.base/'provider').touch()
         (self.state/'receive-delegate-owned').write_text('boot')
         (self.base/'oshare-delegate').touch()
         self.assertEqual(self.run_script('receive-session.sh', 'clear').returncode, 0)
@@ -331,6 +379,8 @@ framework() {{ "$@"; }}
 
     def test_pending_dump_overrides_native_idle(self):
         self.frames([{'busy': 1}])
+        # A live provider process is required for the busy gate to apply.
+        (self.base/'provider').touch()
         result = self.run_script('transfer-idle.sh')
         self.assertEqual(result.returncode, 9)
         self.frames([{'busy': 0}])

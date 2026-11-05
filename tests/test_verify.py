@@ -20,11 +20,15 @@ class VerifyTests(unittest.TestCase):
             path = self.base / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
+        # LF endings: verify.sh's `read -r` chokes on CRLF checksum lines.
         (self.base / 'SHA256SUMS').write_text(''.join(
-            f'{hashlib.sha256(data).hexdigest()}  {name}\n' for name, data in payload.items()))
+            f'{hashlib.sha256(data).hexdigest()}  {name}\n' for name, data in payload.items()),
+            newline='\n')
 
     def verify(self, mode='archive'):
-        return subprocess.run(['sh', str(ROOT / 'module/bin/verify.sh'), str(self.base), mode],
+        # POSIX argv paths: backslash paths corrupt the sh-side argument
+        # handling and make sha256sum read the wrong names.
+        return subprocess.run(['sh', (ROOT / 'module/bin/verify.sh').as_posix(), self.base.as_posix(), mode],
                               capture_output=True, text=True)
 
     def test_archive_requires_installation_files(self):
