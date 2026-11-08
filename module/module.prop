@@ -3,5 +3,5 @@ name=OPAirDrop
 version=1.2.0
 versionCode=102000
 author=いいの
-description=为 Oplus sun 平台设备开启 AirDrop，需要开启 Google 服务使用
+description=为 欧加系列 骁龙8Elite 设备开启 AirDrop，需要开启 Google 服务使用，适配：系统Coloros17 ，内核6.6.118。
 updateJson=https://github.com/Sawatari-Makoto/OPAirDrop/releases/latest/download/update.json

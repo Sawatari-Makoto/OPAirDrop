@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cold-start splash: the artwork assembles into its final drawn form —
+     the two open rings and the center dot grow into place and settle as
+     the static launcher artwork. No orbiting: the animation ends exactly
+     at the XML icon's final appearance. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/splash_icon">
+    <target
+        android:name="ringOuter"
+        android:animation="@animator/splash_ring_outer" />
+    <target
+        android:name="ringInner"
+        android:animation="@animator/splash_ring_inner" />
+    <target
+        android:name="dot"
+        android:animation="@animator/splash_dot" />
+</animated-vector>

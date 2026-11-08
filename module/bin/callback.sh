@@ -69,6 +69,16 @@ case "${1:-status}" in
         [ ! -e "$MODDIR/disable" ] && [ ! -e "$MODDIR/remove" ] || die 'module disabled or removed'
         payload="$MODDIR/payload/app-callback/base.apk"
         [ "$(digest "$payload")" = "$patched" ] || die 'payload hash differs'
+        if [ "$(digest "$SYSTEM_APK")" = "$patched" ]; then
+            # Static payload: the manager overlay mounted the patched APK
+            # before zygote, so every app namespace already sees it and no
+            # dynamic mount is needed (late_start mounts never propagate
+            # into namespaces that were forked earlier).
+            rm -f "$CB/boot" "$CB/active-path"
+            /system/bin/sh "$MODDIR/bin/app-check.sh" patched 7>&-
+            echo 'CALLBACK_PATCH_READY static-payload'
+            exit 0
+        fi
         active=$(active_base)
         [ -n "$active" ] && [ "$(printf '%s\n' "$active" | wc -l)" = 1 ] || die 'expected one active base APK'
         if same_boot "$CB/boot" && [ "$(cat "$CB/active-path")" = "$active" ]; then
@@ -104,6 +114,17 @@ case "${1:-status}" in
     restore|off)
         idle
         restore_owned
+        if [ "$(digest "$SYSTEM_APK")" = "$patched" ]; then
+            # Static payload: the patched APK is the manager-mounted system
+            # view and the original is not reachable per-boot; restoring it
+            # requires the original module payload (reinstall) instead.
+            # Bootstrap's restore-before-ensure tolerates this skip.
+            if [ "${1:-}" = off ]; then
+                echo 'static payload: switch-off requires the original module payload' >&2
+            fi
+            echo 'CALLBACK_STATIC_PAYLOAD_RESTORE_SKIPPED'
+            exit 0
+        fi
         [ "${1:-}" != off ] || touch "$STATE/callback-off"
         /system/bin/sh "$MODDIR/bin/app-check.sh" original 7>&-
         echo 'CALLBACK_ORIGINAL_APK_RESTORED'

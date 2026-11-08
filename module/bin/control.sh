@@ -176,7 +176,12 @@ start_native() {
     fi
     OPAIRSHARE_ENABLE_HOPPING=1 OPAIRSHARE_SOCIAL_CHANNELS=149 \
         OPAIRSHARE_CONFIG_TRACE="$STATE/config-trace.log" \
-        OPAIRSHARE_CHANNEL_PROFILE=freq20 \
+    # Verified with a real iPhone on 2026-11-08: at 80 MHz (bw=2) the Wonder
+    # link goes mutually deaf against the iPhone (TX beacons leave, RX stays
+    # near zero, mosey TCP/8770 connect times out), because AWDL discovery
+    # frames are 20 MHz primary-channel frames. Keep the 20 MHz profile
+    # until a wide-band negotiation path exists.
+    OPAIRSHARE_CHANNEL_PROFILE=freq20 \
         LD_PRELOAD="$MODDIR/payload/native/libopairshare_capability.so:$MODDIR/payload/native/libopairshare_config.so:$MODDIR/payload/native/libopairshare_channel.so" \
         /system_ext/bin/mosey_server >> "$STATE/server.log" 2>&1 < /dev/null 9>&- &
     server=$!
@@ -319,6 +324,7 @@ case "${1:-status}" in
         ;;
     adopt)
         preflight; lock_stack
+        /system/bin/sh "$MODDIR/bin/freezer-guard.sh" || true
         kernel_matches || { echo 'Live kernel identity does not match the successful payload'; exit 3; }
         server=$(pidof mosey_server || true)
         case "$server" in ''|*[!0-9]*) exit 3;; esac
@@ -358,6 +364,10 @@ case "${1:-status}" in
         fi
         /system/bin/sh "$MODDIR/bin/grant-permissions.sh" 2>/dev/null || true
         rm -f "$STATE/disabled"
+        # Cached-app freezer guards must precede the provider start: the
+        # provider process is born cached and immediately begins binder
+        # traffic that the binder-freezer kill punishes.
+        /system/bin/sh "$MODDIR/bin/freezer-guard.sh" || true
         # `swap_done` tells the failure path whether the kernel stack was
         # already replaced by the patched drivers; see start_failure_handler.
         swap_done=0

@@ -15,8 +15,6 @@ from release import emit_metadata, REPOSITORY
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools' / 'kernel'))
 import vermagic  # noqa: E402  (path is prepared above)
-LEGACY = 'op' + '13'
-PROVIDER = 'oneplus' + '13_wonder_provider'
 
 
 def digest(path):
@@ -184,6 +182,16 @@ def main():
     copy_tree(reference / 'system', output / 'system')
     copy_tree(reference / 'payload/kernel', output / 'payload/kernel')
     copy_tree(reference / 'payload/app-callback', output / 'payload/app-callback')
+    # The late_start bind mount that used to deliver the patched base.apk
+    # never propagates into app mount namespaces: apps forked from zygote
+    # before the mount keep the stock view for the whole boot, so the
+    # discovery policy classes were never loadable in the mosey process.
+    # Ship the patched APK as the static system payload instead — manager
+    # overlays mount it before zygote, so every app namespace inherits it.
+    # The dynamic callback mount below remains as a fallback for a system
+    # view that is still stock (e.g. an updated stock MoseyApp).
+    mosey_base = output / 'system/system_ext/priv-app/MoseyApp/base.apk'
+    shutil.copy2(output / 'payload/app-callback/base.apk', mosey_base)
     for name in ('APP-SHA256SUMS', 'APP-CALLBACK-SHA256SUMS'):
         source = reference / name
         if digest(source) != manifest.get(name):
@@ -199,17 +207,14 @@ def main():
     companion.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(oshare_apk, companion)
 
-    # Retain the actual module names/sysfs names exported by the verified kernels.
-    # New module paths, state paths, native helpers and environment names stay current.
+    # Keep the provider module under its generic, device-independent name:
+    # the shipped reference payload .ko itself is patched to
+    # opairshare_wonder_provider, so scripts must not remap it.
+    # The sysfs parameters and the discovery/standby properties share the
+    # same generic debug.opairshare.* namespace on both sides: the injected
+    # DiscoveryPolicy class and the companion app read those names directly.
     for path in (output / 'bin').glob('*.sh'):
-        text = path.read_text().replace('opairshare_wonder_provider', PROVIDER)
-        # The shipped reference-r27 driver exports the opairshare_* sysfs
-        # parameters, so they must not be remapped to the legacy op13_* names.
-        # Only the Mosey discovery properties follow the legacy ABI, because
-        # the captured callback APK reads debug.op13.*.
-        for prop in ('discovery', 'standby'):
-            text = text.replace('debug.opairshare.' + prop, 'debug.' + LEGACY + '.' + prop)
-        write_lf(path, text)
+        write_lf(path, path.read_text())
     identity = json.loads((reference / 'kernel-identity.json').read_text())
     kernel_identity = output / 'bin/kernel-identity.sh'
     text = kernel_identity.read_text()
@@ -218,7 +223,7 @@ def main():
     # specific identity may ship with the package.
     text = ''.join(line + '\n' for line in text.splitlines()
                    if not line.startswith('STOCK_NOTE_'))
-    for name in ('mac80211', 'qca_cld3_peach_v2', 'wonder', PROVIDER):
+    for name in ('mac80211', 'qca_cld3_peach_v2', 'wonder', 'opairshare_wonder_provider'):
         text = text.replace(f'NOTE_{name}=BUILD_REQUIRED', f'NOTE_{name}=' + identity[name + '.ko']['build_id_note'])
     family, page_size = vermagic.abi(output / 'payload/kernel/qca_cld3_peach_v2.ko')
     text = text.replace('KERNEL_ABI_FAMILY=BUILD_REQUIRED', f'KERNEL_ABI_FAMILY={family}')
@@ -231,12 +236,28 @@ def main():
 
     # Check both original and patched APK/split manifests against the assembled files.
     app = output / 'system/system_ext/priv-app/MoseyApp'
+    static_base = app / 'base.apk'
+    callback_base = output / 'payload/app-callback/base.apk'
+    patched_base = ''
     for name in ('APP-SHA256SUMS', 'APP-CALLBACK-SHA256SUMS'):
         for line in (output / name).read_text().splitlines():
             expected, apk = line.split()
-            path = output / 'payload/app-callback/base.apk' if name.startswith('APP-CALLBACK') and apk == 'base.apk' else app / apk
+            if apk == 'base.apk':
+                if name.startswith('APP-CALLBACK'):
+                    patched_base = expected
+                    path = callback_base
+                else:
+                    # The static payload ships the patched base.apk, so no
+                    # packaged file matches the original hash anymore; it is
+                    # recorded only as the rollback target for the runtime
+                    # scripts and verified against the reference above.
+                    continue
+            else:
+                path = app / apk
             if digest(path) != expected:
                 raise SystemExit(f'APK hash mismatch: {name}: {apk}')
+    if digest(static_base) != patched_base:
+        raise SystemExit('Static payload base.apk is not the patched APK')
     for name in ('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
         shutil.copy2(ROOT / name, output / name)
     copy_tree(ROOT / 'LICENSES', output / 'LICENSES')

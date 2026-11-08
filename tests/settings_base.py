@@ -126,10 +126,13 @@ framework() {{ cat '{self.base.as_posix()}/wifi'; }}
             data=json.loads(self.run_api('status').stdout)
             self.assertEqual((data['coexist'],data['coexist_requested'],data['scope']),('on','on','auto'))
 
-    def test_disconnection_pauses_actual_session_but_never_changes_policy(self):
+    def test_disconnected_sta_stays_eligible_for_awdl_only_sessions(self):
+        # Wi-Fi on but unassociated is a valid coexistence state: the AirDrop
+        # data path runs on wonder0 and the unassociated STA adds no channel
+        # constraint, so the session may arm and status reports coexistence on.
         (self.base/'wifi').write_text('Wifi is enabled\n')
         data=json.loads(self.run_api('status').stdout)
-        self.assertEqual((data['coexist'],data['coexist_requested'],data['coexist_reason']),('off','on','wifi_disconnected'))
+        self.assertEqual((data['coexist'],data['coexist_requested'],data['coexist_reason']),('on','on',''))
 
     def background_session(self):
         (self.state/'ui-session').write_text('boot')

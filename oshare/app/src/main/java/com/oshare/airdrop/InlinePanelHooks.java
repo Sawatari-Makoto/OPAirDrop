@@ -3,6 +3,7 @@ package com.oshare.airdrop;
 import android.content.Context;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -94,6 +95,7 @@ public final class InlinePanelHooks {
                     viewRef = new WeakReference<>(root);
                     serviceRef = new WeakReference<>(chain.getThisObject());
                     injectRow(chain.getThisObject(), root);
+                    registerStateObserver(chain.getThisObject());
                     syncChecks(root);
                 }
             } catch (Throwable t) { log(Log.WARN, "inline panel iPhone row injection failed", t); }
@@ -164,9 +166,38 @@ public final class InlinePanelHooks {
         if (root != null) syncChecks(root);
     }
 
+    /** The panel view can outlive a mode change made elsewhere (the settings
+     *  screen): the lifecycle hooks only fire on panel events, so a mode
+     *  picked in HelpActivity would never re-sync an already-inflated panel.
+     *  Watch the two reception settings keys directly instead. */
+    private static volatile boolean observerRegistered;
+
+    private static void registerStateObserver(Object service) {
+        if (observerRegistered || !(service instanceof Context)) return;
+        try {
+            Context ctx = (Context) service;
+            android.database.ContentObserver obs = new android.database.ContentObserver(
+                    new android.os.Handler(android.os.Looper.getMainLooper())) {
+                @Override public void onChange(boolean selfChange) { resync(); }
+            };
+            ctx.getContentResolver().registerContentObserver(
+                    Settings.System.getUriFor(ReceiveModeHooks.MARKER), false, obs);
+            ctx.getContentResolver().registerContentObserver(
+                    Settings.System.getUriFor(OSHARE_STATE), false, obs);
+            observerRegistered = true;
+            log(Log.INFO, "panel settings observer registered");
+        } catch (Throwable t) { log(Log.WARN, "panel settings observer failed", t); }
+    }
+
     /** Builds the fourth row by cloning the structure and look of the official
-     *  "everyone" row, then inserts it directly below it. Idempotent per panel
-     *  view via the row tag. */
+     *  rows, then inserts it directly below the "everyone" row. Idempotent per
+     *  panel view via the row tag.
+     *
+     *  Style template is the contacts row, not the everyone row: at inject
+     *  time (straight after inflation) the everyone row can still be mid
+     *  layout with collapsed metrics, and the official row structure is
+     *  [column(title+summary) | radio-on-the-right] - the earlier radio-first
+     *  build rendered indented next to the official rows. */
     private static void injectRow(Object service, View root) throws Exception {
         if (root.findViewWithTag(ROW_TAG) != null) return;
         int allId = id(root, "root_reception_all");
@@ -176,13 +207,19 @@ public final class InlinePanelHooks {
         Context ctx = root.getContext();
         ClassLoader cl = ctx.getClassLoader();
 
+        int contactsId = id(root, "root_reception_contacts");
+        View templateView = contactsId == 0 ? null : root.findViewById(contactsId);
+        if (!(templateView instanceof ViewGroup)) templateView = official;
+        ViewGroup template = (ViewGroup) templateView;
+        View templateInner = template.getChildCount() > 0 ? template.getChildAt(0) : null;
+
         View row = (View) newInstance1(cl.loadClass(ROW_TYPE), ctx);
         ViewGroup rowGroup = (ViewGroup) row;
         rowGroup.setClipChildren(false);
         rowGroup.setClipToPadding(false);
         row.setFocusable(true);
         row.setClickable(true);
-        ViewGroup.LayoutParams srcLp = official.getLayoutParams();
+        ViewGroup.LayoutParams srcLp = template.getLayoutParams();
         if (srcLp instanceof LinearLayout.LayoutParams)
             row.setLayoutParams(new LinearLayout.LayoutParams((LinearLayout.LayoutParams) srcLp));
         else if (srcLp instanceof ViewGroup.MarginLayoutParams)
@@ -194,21 +231,21 @@ public final class InlinePanelHooks {
         LinearLayout inner = new LinearLayout(ctx);
         inner.setOrientation(LinearLayout.HORIZONTAL);
         inner.setGravity(Gravity.CENTER_VERTICAL);
-        View officialInner = official.getChildAt(0);
-        if (officialInner != null) {
-            inner.setPadding(officialInner.getPaddingLeft(), officialInner.getPaddingTop(),
-                    officialInner.getPaddingRight(), officialInner.getPaddingBottom());
-            inner.setMinimumHeight(officialInner.getMinimumHeight());
-            if (officialInner.getLayoutParams() instanceof LinearLayout.LayoutParams)
+        if (templateInner != null) {
+            inner.setPadding(templateInner.getPaddingLeft(), templateInner.getPaddingTop(),
+                    templateInner.getPaddingRight(), templateInner.getPaddingBottom());
+            inner.setMinimumHeight(templateInner.getMinimumHeight());
+            if (templateInner.getLayoutParams() instanceof LinearLayout.LayoutParams)
                 inner.setLayoutParams(new LinearLayout.LayoutParams(
-                        (LinearLayout.LayoutParams) officialInner.getLayoutParams()));
+                        (LinearLayout.LayoutParams) templateInner.getLayoutParams()));
         }
 
         RelativeLayout column = new RelativeLayout(ctx);
         column.setLayoutParams(new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView officialTitle = textView(root, "tv_reception_all_title");
+        TextView officialTitle = textView(root, "tv_reception_contacts_title");
+        if (officialTitle == null) officialTitle = textView(root, "tv_reception_all_title");
         TextView title = (TextView) newInstance1(cl.loadClass(TEXTVIEW), ctx);
         copyTextLook(officialTitle, title);
         title.setText(ReceiveModeHooks.IOS_TITLE);
@@ -217,7 +254,8 @@ public final class InlinePanelHooks {
         column.addView(title, new RelativeLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView officialSummary = textView(root, "tv_reception_all_summary");
+        TextView officialSummary = textView(root, "tv_reception_contacts_summary");
+        if (officialSummary == null) officialSummary = textView(root, "tv_reception_all_summary");
         TextView summary = (TextView) newInstance1(cl.loadClass(TEXTVIEW), ctx);
         copyTextLook(officialSummary, summary);
         summary.setText(ReceiveModeHooks.IOS_SUBTITLE);
@@ -232,10 +270,15 @@ public final class InlinePanelHooks {
         }
         column.addView(summary, summaryLp);
 
-        CompoundButton officialRadio = (CompoundButton) find(root, "rb_reception_all");
+        CompoundButton officialRadio = (CompoundButton) find(root, "rb_reception_contacts");
+        if (officialRadio == null) officialRadio = (CompoundButton) find(root, "rb_reception_all");
         CompoundButton radio = (CompoundButton) newInstance1(cl.loadClass(RADIO), ctx);
         if (officialRadio != null) {
-            radio.setButtonDrawable(officialRadio.getButtonDrawable());
+            // A Drawable instance carries ONE state shared by every view it is
+            // assigned to: reusing the official radio's instance made the
+            // iPhone mark mirror whichever official radio was checked last
+            // (and vice versa). Derive an independent copy instead.
+            radio.setButtonDrawable(independentDrawable(officialRadio.getButtonDrawable()));
             ViewGroup.MarginLayoutParams src = officialRadio.getLayoutParams()
                     instanceof ViewGroup.MarginLayoutParams
                     ? (ViewGroup.MarginLayoutParams) officialRadio.getLayoutParams() : null;
@@ -250,9 +293,9 @@ public final class InlinePanelHooks {
         radio.setFocusable(false);
         radio.setTag(RADIO_TAG);
         radio.setChecked(false);
+        inner.addView(column);
         inner.addView(radio);
 
-        inner.addView(column);
         rowGroup.addView(inner);
         row.setTag(ROW_TAG);
         row.setOnClickListener(v -> {
@@ -264,8 +307,89 @@ public final class InlinePanelHooks {
         });
 
         ViewGroup parent = (ViewGroup) official.getParent();
-        parent.addView(row, parent.indexOfChild(official) + 1);
+        int at = parent.indexOfChild(official) + 1;
+        // Official rows are separated by a 0.33dp no-id View (the layout XML
+        // puts one below the everyone row). Our row insertion used to push
+        // that divider under the new row, leaving no line between "everyone"
+        // and the iPhone row - clone it for the gap above the row.
+        View below = at < parent.getChildCount() ? parent.getChildAt(at) : null;
+        View dividerClone = below != null && below.getId() == View.NO_ID
+                && !(below instanceof ViewGroup) ? cloneDivider(below, ctx) : null;
+        if (dividerClone != null) { parent.addView(dividerClone, at); at++; }
+        parent.addView(row, at);
         log(Log.INFO, "inline panel iPhone row inserted");
+
+        // When contacts or receive-off claim the check, iPhone mode must step
+        // down: the panel writes its state on its own path and never clears
+        // the marker, which left two options checked at once. The everyone
+        // row is deliberately NOT listened to - the iPhone enable path itself
+        // writes state 1, which natively re-checks the everyone radio, and
+        // explicit everyone taps are already covered by the S() hook.
+        CompoundButton.OnCheckedChangeListener stepDown = (btn, isChecked) -> {
+            if (!isChecked || ReceiveModeHooks.enablingIos()) return;
+            try {
+                ReceiveModeHooks.onOfficialModeChosen(btn.getContext());
+                CompoundButton ios = (CompoundButton) root.findViewWithTag(RADIO_TAG);
+                if (ios != null && ios != btn) ios.setChecked(false);
+                // official state write may still be in flight; resync after it
+                root.postDelayed(() -> resync(), 150);
+            } catch (Throwable t) { log(Log.WARN, "inline official radio step-down failed", t); }
+        };
+        for (String n : new String[]{"rb_reception_contacts", "rb_reception_off"}) {
+            CompoundButton rb = (CompoundButton) find(root, n);
+            if (rb != null) rb.setOnCheckedChangeListener(stepDown);
+        }
+
+        pinPanelHeight(root);
+    }
+
+    private static View cloneDivider(View src, Context ctx) {
+        try {
+            View v = new View(ctx);
+            v.setBackground(independentDrawable(src.getBackground()));
+            ViewGroup.LayoutParams lp = src.getLayoutParams();
+            if (lp instanceof LinearLayout.LayoutParams)
+                v.setLayoutParams(new LinearLayout.LayoutParams((LinearLayout.LayoutParams) lp));
+            else if (lp != null)
+                v.setLayoutParams(new ViewGroup.LayoutParams(lp));
+            return v;
+        } catch (Throwable t) { return null; }
+    }
+
+    /** Copies a drawable into an independent instance: the source view keeps
+     *  its own state machine, the copy reacts only to our writes. */
+    private static android.graphics.drawable.Drawable independentDrawable(
+            android.graphics.drawable.Drawable src) {
+        if (src == null) return null;
+        android.graphics.drawable.Drawable.ConstantState cs = src.getConstantState();
+        try { return cs != null ? cs.newDrawable() : src.mutate(); }
+        catch (Throwable t) { return src.mutate(); }
+    }
+
+    /** The panel root is wrap_content, but SystemUI sizes the inline surface
+     *  from the very first measure, where a row can still report degenerate
+     *  metrics (the everyone row once measured 3px) - which squeezes the
+     *  surface and leaves the four options scrollable. Measure the finished
+     *  panel here and pin an explicit height with a dimens-based floor:
+     *  title 66dp + 4 rows (minHeight 44dp + 2x10dp margins) + 3 dividers. */
+    private static void pinPanelHeight(View root) {
+        try {
+            Context ctx = root.getContext();
+            android.util.DisplayMetrics dm = ctx.getResources().getDisplayMetrics();
+            int width = root.getWidth() > 0 ? root.getWidth() : dm.widthPixels;
+            root.measure(
+                    View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            int h = root.getMeasuredHeight();
+            float density = dm.density;
+            int floor = Math.round(66f * density + 4 * (44f + 20f) * density + 3 * 0.33f * density);
+            if (h < floor) h = floor;
+            ViewGroup.LayoutParams lp = root.getLayoutParams();
+            if (lp == null) lp = new ViewGroup.LayoutParams(width, h);
+            else lp.height = h;
+            root.setLayoutParams(lp);
+            log(Log.INFO, "inline panel height pinned to " + h);
+        } catch (Throwable t) { log(Log.WARN, "inline panel height pin failed", t); }
     }
 
     /** Aligns the four check marks with the real reception state, the way the
@@ -285,9 +409,10 @@ public final class InlinePanelHooks {
             if (contacts != null) contacts.setChecked(!active && state == 2);
             if (off != null) off.setChecked(!active && state == 0);
             if (ios != null) ios.setChecked(active && state == 1);
+            // the static description stays visible like on the official rows;
+            // while the countdown runs, redirectText swaps it for the tick copy
             TextView iosSummary = (TextView) root.findViewWithTag(SUMMARY_TAG);
-            if (iosSummary != null)
-                iosSummary.setText(active && state == 1 ? ReceiveModeHooks.IOS_SUBTITLE : "");
+            if (iosSummary != null) iosSummary.setText(ReceiveModeHooks.IOS_SUBTITLE);
         } catch (Throwable t) { log(Log.WARN, "inline panel check sync failed", t); }
     }
 
@@ -352,7 +477,17 @@ public final class InlinePanelHooks {
                     return ctor.newInstance(ctx);
                 }
             }
-            throw e;
+            // COUI view classes are XML-inflation only: they ship no
+            // (Context) constructor at all - ListSelectedItemLayout only
+            // offers (Context, AttributeSet[,...]). Inflate-style call with
+            // a null AttributeSet is what every View subclass accepts.
+            try {
+                Constructor<?> ctor = type.getDeclaredConstructor(Context.class, AttributeSet.class);
+                ctor.setAccessible(true);
+                return ctor.newInstance(ctx, null);
+            } catch (NoSuchMethodException ignored) {
+                throw e;
+            }
         }
     }
 

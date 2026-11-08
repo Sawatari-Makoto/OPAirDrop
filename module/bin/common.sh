@@ -273,7 +273,11 @@ component_disabled() {
         sed -n '/disabledComponents:/,/^        [^ ]/p' | grep -c 'ExternalSharingService' || true)
     [ "${enabled:-0}" -gt 0 ] && return 1
     [ "${disabled:-0}" -gt 0 ] && return 0
-    return 0
+    # No override entry at all means the component is in its manifest
+    # default state (enabled). Claiming it is disabled here made every
+    # ensure fire a redundant "pm enable", i.e. a PACKAGE_CHANGED
+    # broadcast that force-stops the provider on each pass.
+    return 1
 }
 kernel_matches() {
     # The stock WLAN and mac80211 builds differ per firmware and per device,

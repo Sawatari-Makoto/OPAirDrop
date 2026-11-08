@@ -7,9 +7,16 @@ case "${1:-runtime}" in
     original) manifest="$MODDIR/APP-SHA256SUMS";;
     patched) manifest="$MODDIR/APP-CALLBACK-SHA256SUMS";;
     runtime)
-        # Report what is really mounted, not what a leftover marker claims.
-        if same_boot "$STATE/callback/boot"; then manifest="$MODDIR/APP-CALLBACK-SHA256SUMS"
-        else manifest="$MODDIR/APP-SHA256SUMS"; fi;;
+        # The manifest follows the actually active base.apk, not a leftover
+        # marker: the static payload ships the patched APK (no callback
+        # mount exists) while the dynamic mount exposes the same patched
+        # hash — in both cases the patched manifest is the right one.
+        base=$(framework pm path --user 0 "$PKG" | sed -n 's/^package:\(.*\/base.apk\)$/\1/p' | head -n1)
+        patched_hash=$(awk '$2=="base.apk" {print $1}' "$MODDIR/APP-CALLBACK-SHA256SUMS")
+        manifest="$MODDIR/APP-SHA256SUMS"
+        if [ -n "$base" ] && [ "$(sha256sum "$base" | awk '{print $1}')" = "$patched_hash" ]; then
+            manifest="$MODDIR/APP-CALLBACK-SHA256SUMS"
+        fi;;
     *) exit 2;;
 esac
 paths=$(framework pm path --user 0 "$PKG" | sed -n 's/^package://p')

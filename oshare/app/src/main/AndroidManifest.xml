@@ -2,27 +2,49 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
         <package android:name="com.google.android.mosey" />
         <package android:name="com.coloros.oshare" />
+        <package android:name="org.lsposed.manager" />
+        <package android:name="me.weishu.kernelsu" />
+        <package android:name="com.rifsxd.ksunext" />
+        <package android:name="com.sukisu.ultra" />
+        <package android:name="me.bmax.apatch" />
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="io.github.huskydg.magisk" />
     </queries>
 
     <application
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
-        android:theme="@android:style/Theme.Material.NoActionBar">
+        android:theme="@style/AppTheme">
 
+        <!-- orientation unlocked (landscape supported); configChanges keeps
+             the activity alive across rotation AND day/night flips so tab/
+             scroll state and the probed environment survive without
+             recreation — uiMode changes are re-themed in place instead -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name">
+            android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- LSPosed delivers its service binder here (libxposed service
+             handshake); authority must be <pkg>.XposedService -->
+        <provider
+            android:name=".XposedServiceGate"
+            android:authorities="com.oshare.airdrop.XposedService"
+            android:directBootAware="true"
+            android:exported="true" />
     </application>
 </manifest>

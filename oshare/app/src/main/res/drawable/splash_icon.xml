@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash-screen icon: the launcher artwork (center blue dot + two 5/6 open
+     rings) split into three named groups so the animated vector can orbit the
+     rings in opposite directions while the dot pulses.
+     Same geometry and gradient as ic_launcher_foreground.xml. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:name="dot"
+        android:pivotX="54"
+        android:pivotY="54">
+        <path android:pathData="M47.5,54 a6.5,6.5 0 1 0 13,0 a6.5,6.5 0 1 0 -13,0 Z">
+            <aapt:attr name="android:fillColor" xmlns:aapt="http://schemas.android.com/aapt">
+                <gradient
+                    android:type="linear"
+                    android:startX="30" android:startY="26"
+                    android:endX="78" android:endY="82"
+                    android:startColor="#FF47A3F8"
+                    android:endColor="#FF1B5CF0" />
+            </aapt:attr>
+        </path>
+    </group>
+
+    <group
+        android:name="ringInner"
+        android:pivotX="54"
+        android:pivotY="54">
+        <path android:pathData="
+            M46.63,66.77 A14.75,14.75 0 1 1 61.38,66.77
+            L58.63,62.01 A9.25,9.25 0 1 0 49.38,62.01 Z
+            M45.25,64.39 a2.75,2.75 0 1 0 5.5,0 a2.75,2.75 0 1 0 -5.5,0 Z
+            M57.25,64.39 a2.75,2.75 0 1 0 5.5,0 a2.75,2.75 0 1 0 -5.5,0 Z">
+            <aapt:attr name="android:fillColor" xmlns:aapt="http://schemas.android.com/aapt">
+                <gradient
+                    android:type="linear"
+                    android:startX="30" android:startY="26"
+                    android:endX="78" android:endY="82"
+                    android:startColor="#FF47A3F8"
+                    android:endColor="#FF1B5CF0" />
+            </aapt:attr>
+        </path>
+    </group>
+
+    <group
+        android:name="ringOuter"
+        android:pivotX="54"
+        android:pivotY="54">
+        <path android:pathData="
+            M42.5,73.92 A23,23 0 1 1 65.5,73.92
+            L62.75,69.16 A17.5,17.5 0 1 0 45.25,69.16 Z
+            M41.13,71.54 a2.75,2.75 0 1 0 5.5,0 a2.75,2.75 0 1 0 -5.5,0 Z
+            M61.38,71.54 a2.75,2.75 0 1 0 5.5,0 a2.75,2.75 0 1 0 -5.5,0 Z">
+            <aapt:attr name="android:fillColor" xmlns:aapt="http://schemas.android.com/aapt">
+                <gradient
+                    android:type="linear"
+                    android:startX="30" android:startY="26"
+                    android:endX="78" android:endY="82"
+                    android:startColor="#FF47A3F8"
+                    android:endColor="#FF1B5CF0" />
+            </aapt:attr>
+        </path>
+    </group>
+</vector>

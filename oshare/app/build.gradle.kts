@@ -24,6 +24,10 @@ android {
             ?: moduleProperties.getProperty("versionCode").toInt()
         versionName = providers.gradleProperty("opairshareVersionName").orNull
             ?: moduleProperties.getProperty("version")
+
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildFeatures { buildConfig = true }
@@ -61,6 +65,10 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.addAll(listOf("-Xlint:deprecation", "-Xlint:unchecked"))
 }
 
 dependencies {

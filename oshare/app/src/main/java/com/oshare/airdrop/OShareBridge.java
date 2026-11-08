@@ -666,7 +666,7 @@ public final class OShareBridge {
         }
         if ("com.oplus.oshare.action.DEVICE_LIST".equals(intent.getAction())) {
             intent.setExtrasClassLoader(loader);
-            Object list = intent.getSerializableExtra("data_list");
+            Object list = intent.getSerializableExtra("data_list", java.io.Serializable.class);
             if (list instanceof Iterable<?>) for (Object data : (Iterable<?>) list) {
                 Object uri = contentUri(data);
                 if (uri instanceof Uri) uris.add((Uri) uri);

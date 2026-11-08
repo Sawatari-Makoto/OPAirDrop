@@ -151,10 +151,22 @@ monitor_coex_wifi() {
         fi
         # A class/scope/network change needs a fresh profile. A channel
         # change inside the same class is handled by the driver policy.
+        #
+        # Exception: while the AWDL data interface (mosey0) is up, the
+        # firmware parks the STA association (dbs=0 hardware), so the
+        # class flip same149<->disconnected is the expected side effect
+        # of arming the AirDrop session, not a network change. Rebuilding
+        # the session on that flip released Mosey, which brought the STA
+        # back, which re-armed the session: a ~10s connect/disconnect
+        # loop for the whole window. A real network change cannot be
+        # observed while the STA is parked anyway; it becomes visible as
+        # soon as the session releases and mosey0 disappears, and this
+        # check handles it then.
         if [ -d "$STATE/coex-session" ] &&
            { [ "$(cat "$STATE/coex-session/class" 2>/dev/null)" != "$coex_wifi_class" ] ||
              [ "$(cat "$STATE/coex-session/scope" 2>/dev/null)" != "$(coex_scope)" ] ||
-             [ "$(cat "$STATE/coex-session/network" 2>/dev/null)" != "$coex_wifi_network" ]; };then
+             [ "$(cat "$STATE/coex-session/network" 2>/dev/null)" != "$coex_wifi_network" ]; } &&
+           [ ! -e /sys/class/net/mosey0 ];then
             if [ ! -e "$STATE/coex-session/invalidated" ];then
                 touch "$STATE/coex-session/invalidated" || { exec 6>&-;return 1; }
                 echo 'COEX_WIFI_CHANGED: rebuilding session when idle'
@@ -225,6 +237,23 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         echo 'Native server lost; explicit recovery required'; exit 6
     fi
     printf '%s %s\n' "$(boot_id)" "$$" > "$STATE/supervisor-ready"
+    # Assert the cached-app freezer guards once per boot (self-gating, one
+    # marker read per tick). The binder-freezer kill removes the cached Mosey
+    # provider within minutes because it never stops its binder traffic; the
+    # guard must be in place before the first session is armed.
+    if ! same_boot "$STATE/freezer-guard"; then
+        /system/bin/sh "$MODDIR/bin/freezer-guard.sh" 8>&- || true
+    fi
+    # ColorOS freezes the cached provider process when the share surface is
+    # idle; the next oneway binder call from oshare is then dropped with
+    # "Sending oneway calls to frozen process" and discovery never starts,
+    # even though the service record itself is intact. Unfreeze the package
+    # every few ticks so the first binder call of a fresh share session
+    # always reaches a live process.
+    unfreeze_tick=$(( ${unfreeze_tick:-0} + 1 ))
+    if [ $((unfreeze_tick % 5)) = 0 ] && pidof "$PKG" >/dev/null 2>&1; then
+        framework cmd activity unfreeze "$PKG" >/dev/null 2>&1 || true
+    fi
     if ! apply_share_mode;then
         receive_published=0
         sleep 1;continue

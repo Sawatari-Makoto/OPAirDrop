@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark-mode splash / launcher background: matches the app's dark page
+         color (#1F1F1F) so the cold start blends into the dark UI. -->
+    <color name="ic_launcher_background">#1F1F1F</color>
+</resources>

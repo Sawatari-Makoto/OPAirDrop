@@ -1,5 +1,32 @@
 # OPAirDrop 更新日志
 
+## 未发布
+
+- 互发现故障最终定案（修正本段下方 80 MHz 归因）：真凶是路由器信道漂移
+  而非 80 MHz、模块改名或重启——iPhone 的 AWDL 可用窗口锚定其基础 Wi-Fi
+  信道，15:51–16:0x 路由器把信道从 149 挪到 36（16:11 会话 STA 在
+  5180/cross5g 为铁证），iPhone 跟跳导致双方信道错开互聋；路由器回 149
+  后 same149 会话立即恢复并完成 incoming_transfer。附带结论：iPhone 关
+  Wi-Fi 时 AWDL 自由漫游（多为 2.4G ch6），与钉死的 5745 几乎不重叠，
+  因此 iPhone 必须开着 Wi-Fi 连接 149 信道的同一路由器。
+- 属性 ABI 通用化：`debug.op13.discovery` 等属性名改为
+  `debug.opairshare.discovery`（Entry.java 回退读取与一次性探针、
+  package.py/package-coex.py 属性替换全部清理），注入侧
+  `dev.evermore.opairshare.DiscoveryPolicy` 类名同步，APK 已重编译。
+- 80 MHz 实验结论与回退：~~真机复测证实 80 MHz（Wonder SET_FREQUENCY
+  bw=2）下与 iPhone 链路互聋~~（此归因已被上述信道漂移定案推翻——
+  freq20 回退后症状依旧复现；80 MHz 与 iPhone 20 MHz 帧的兼容性仍是
+  提速路线的待验证项）。信道 profile 保持 `freq20`，待宽带协商路径
+  落地后再评估提速。
+- provider 内核模块通用化：补丁栈的 provider 驱动统一使用与机型无关的
+  `opairshare_wonder_provider` 名称。reference payload 的
+  `oneplus13_wonder_provider.ko` 经 `tools/patch-provider-name.py` 二进制
+  手术改为通用名（`.modinfo` name 与 `.gnu.linkonce.this_module` 内部名，
+  build id 保持不变，故 `kernel-identity.sh` 的 NOTE 值继续有效），打包器
+  `package.py` / `package-coex.py` 不再把脚本中的通用名回改成机型名，
+  为适配其他骁龙 8E / 6.6.118 内核机型铺路（每台设备装机时仍现场采集
+  自己的 build id）。`debug.op13.*` 发现属性映射保留（捕获版 APK 依赖）。
+
 ## 1.2.0
 
 - 移除模块 WebUI：其全部功能（分享入口切换、AirDrop 名称、接收目录、

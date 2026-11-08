@@ -70,13 +70,18 @@ public final class ReceiveModeHooks {
     private static final String[] GET_KEY = {"getKey", "B"};
     private static final String[] SET_TITLE = {"setTitle", "Z0"};
     private static final String[] GET_TITLE = {"getTitle", "e0"};
-    /** COUIMarkPreference.p1(CharSequence) writes the blue summary line a radio
-     *  shows under its title (the countdown copy lives there). */
+    /** COUIMarkPreference.p1(CharSequence) writes the blue assignment line a
+     *  radio shows under its title (the countdown copy lives there). The
+     *  static grey subtitle ("可被附近所有设备发现" of the official rows) is
+     *  the standard androidx Preference summary, whose writer survives R8
+     *  under the name W0 (verified against the decompiled build: W0 checks
+     *  the SummaryProvider guard, stores the field and notifies). */
     private static final String[] SET_SUMMARY = {"p1"};
+    private static final String[] SET_SUMMARY_STD = {"setSummary", "W0"};
     private static final String MARK_PREF = "com.coui.appcompat.preference.COUIMarkPreference";
     /** Shared with InlinePanelHooks (SystemUI control-centre panel row). */
     public static final String IOS_TITLE = "iPhone（10 分钟）";
-    public static final String IOS_SUBTITLE = "可被附近 iPhone 设备发现";
+    public static final String IOS_SUBTITLE = "可被附近iPhone设备发现";
     /** COUIRadioPreference inherits TwoStatePreference whose setChecked is
      *  obfuscated to h1(boolean) on this build; match the exact boolean
      *  signature so the unrelated PreferenceGroup.h1(Preference) is never
@@ -272,8 +277,9 @@ public final class ReceiveModeHooks {
     private static void onPreferenceClicked(Object fragment, Object preference) {
         if (preference == null) return;
         boolean ios;
+        String key;
         try {
-            String key = stringOf(preference, GET_KEY);
+            key = stringOf(preference, GET_KEY);
             ios = IOS_KEY.equals(key);
             if (!ios) ios = IOS_TITLE.equals(stringOf(preference, GET_TITLE));
         } catch (Throwable t) { log(Log.WARN, "clicked radio identification failed", t); return; }
@@ -281,7 +287,6 @@ public final class ReceiveModeHooks {
             Context context = contextOf(fragment);
             if (context != null) enableIosMode(context);
         } else {
-            String key = stringOf(preference, GET_KEY);
             if (KEY_ALL.equals(key) || KEY_CONTACTS.equals(key) || KEY_OFF.equals(key)) {
                 // The write path itself clears the marker; this is a direct
                 // fallback for builds where p1.u does not resolve.
@@ -321,6 +326,7 @@ public final class ReceiveModeHooks {
                 try { invokeWriteEntry(context, 1); }
                 finally { enabling = false; }
                 Settings.System.putInt(context.getContentResolver(), MARKER, 1);
+                log(Log.INFO, "enableIosMode wrote state=1 marker=1");
             }
         } catch (Throwable failure) {
             log(Log.WARN, "iPhone reception mode enable failed", failure);
@@ -362,6 +368,21 @@ public final class ReceiveModeHooks {
         scheduleSync(null);
     }
 
+    /** True while the module itself is driving the official write path to
+     *  select iPhone mode - native side effects of that write (the everyone
+     *  radio being re-checked) must not be read as user choices. */
+    public static boolean enablingIos() { return enabling; }
+
+    /** Same contract as onOfficialEveryoneTap for the other official panel
+     *  rows (contacts / receive-off): choosing any official mode ends iPhone
+     *  mode. The panel writes its state on its own path and never clears the
+     *  marker, which used to leave two options checked at once. */
+    public static void onOfficialModeChosen(Context context) {
+        if (enabling) return;
+        clearMarker(context);
+        scheduleSync(null);
+    }
+
     /** True when the iPhone reception mode is selected (marker == 1). */
     public static boolean iosModeActive(Context context) {
         if (context == null) return false;
@@ -383,13 +404,17 @@ public final class ReceiveModeHooks {
         Object all = findByKey(screen, KEY_ALL);
         if (all == null) return;
         fragmentRef = new WeakReference<>(fragment);
+        probeRuntimeAnimator(fragment);
         if (findByTitle(screen, IOS_TITLE) != null) { scheduleSync(null); return; }
         Object contacts = findByKey(screen, KEY_CONTACTS);
         Object off = findByKey(screen, KEY_OFF);
         Object radio = createRadio(contextOf(fragment));
         if (radio == null) { log(Log.WARN, "COUIRadioPreference construction unavailable", null); return; }
         setTitle(radio, IOS_TITLE);
-        try { invokeAny(radio, SET_SUMMARY, (CharSequence) IOS_SUBTITLE); }
+        // The grey subtitle must stay visible whether the option is on or off,
+        // so it goes to the standard summary, not the assignment line (which
+        // would flash blue and get overwritten by the countdown redirect).
+        try { invokeAny(radio, SET_SUMMARY_STD, (CharSequence) IOS_SUBTITLE); }
         catch (Throwable t) { log(Log.WARN, "iPhone option summary set failed", t); }
         Object group = groupOf(all, screen);
         if (group == null) { log(Log.WARN, "reception category not found", null); return; }
@@ -489,10 +514,19 @@ public final class ReceiveModeHooks {
             if (ios != null) {
                 boolean active = state == 1 && marker == 1;
                 setCheckedOn(ios, active);
-                // Baseline copy for the iPhone row; the live countdown overrides
-                // it every second through the redirected p1 hook while running.
-                try { invokeAny(ios, SET_SUMMARY, (CharSequence) (active ? IOS_SUBTITLE : "")); }
+                // The grey subtitle mirrors the official rows: always visible,
+                // on and off alike. The blue assignment line below it carries
+                // only the live countdown - while the mode is active the
+                // redirected p1 tick owns it, and whenever the mode is off a
+                // single empty write collapses it (p1 hides empty marks by
+                // GONE-ing the assignment view; repeated writes are no-ops
+                // because p1 short-circuits on equal text).
+                try { invokeAny(ios, SET_SUMMARY_STD, (CharSequence) IOS_SUBTITLE); }
                 catch (Throwable t) { log(Log.WARN, "iPhone option summary sync failed", t); }
+                if (!active) {
+                    try { invokeAny(ios, SET_SUMMARY, (CharSequence) ""); }
+                    catch (Throwable t) { log(Log.WARN, "iPhone option countdown clear failed", t); }
+                }
             }
         } catch (Throwable t) { log(Log.WARN, "reception option sync failed", t); }
     }
@@ -522,6 +556,185 @@ public final class ReceiveModeHooks {
         if (fragment != null) fragmentRef = new WeakReference<>(fragment);
         MAIN.postDelayed(ReceiveModeHooks::syncRadios, 100);
         MAIN.postDelayed(ReceiveModeHooks::syncRadios, 500);
+    }
+
+    /** The grey band flashing at the bottom of an option row while the list
+     *  expands it is the RecyclerView change animation: notifyItemChanged
+     *  cross-fades the old (short) item view with the new (tall) one, and
+     *  mid-fade the old view's pressed highlight is still painted, reading
+     *  as a full-width grey strip for a couple of frames. Clearing the
+     *  transient view states of the outgoing holder the instant the change
+     *  animation starts keeps the cross-fade (the expansion stays smooth)
+     *  while removing what it paints over the fresh card. */
+    /** Logs which ItemAnimator implementation the host actually installs on
+     *  its RecyclerViews: if it is a COUI subclass overriding animateChange,
+     *  the DefaultItemAnimator hook below would never fire. NOTE: the old
+     *  setItemAnimator-based probe was removed - the host's obfuscated androidx
+     *  no longer exposes a RecyclerView$ItemAnimator nested class (CNFE aborted
+     *  the whole install chain), the callback never fired in practice anyway
+     *  (the animator is created inside the RecyclerView constructor), and
+     *  probeRuntimeAnimator below covers discovery directly. */
+
+    /** COUI ships its own ItemAnimator subclass; if it overrides animateChange
+     *  the DefaultItemAnimator hook never fires. Read the animator actually
+     *  installed on the settings RecyclerView and hook that implementation
+     *  directly. */
+    private static volatile boolean runtimeAnimatorHooked;
+    private static int probeAttempts;
+
+    private static void probeRuntimeAnimator(Object fragment) {
+        if (runtimeAnimatorHooked) return;
+        probeAttempts = 0;
+        scheduleProbe(fragment);
+    }
+
+    /** The settings RecyclerView only exists after onCreateView, which runs
+     *  after the onCreatePreferences call this probe piggybacks on - retry on
+     *  the main thread until the list is reachable. */
+    private static void scheduleProbe(Object fragment) {
+        if (probeAttempts >= 5 || runtimeAnimatorHooked) {
+            if (!runtimeAnimatorHooked)
+                log(Log.WARN,
+                        "runtime animator probe gave up after " + probeAttempts + " attempts");
+            return;
+        }
+        probeAttempts++;
+        MAIN.postDelayed(() -> {
+            if (runtimeAnimatorHooked) return;
+            try {
+                Class<?> rvClass = loader.loadClass("androidx.recyclerview.widget.RecyclerView");
+                Object rv = recyclerViewOf(fragment, rvClass);
+                if (rv == null) {
+                    scheduleProbe(fragment);
+                    return;
+                }
+                Object animator = invokeExact(rv, "getItemAnimator", 0);
+                runtimeAnimatorHooked = true;
+                if (animator == null) return;
+                hookAnimatorChange(animator.getClass());
+            } catch (Throwable t) {
+                log(Log.WARN, "runtime animator probe failed", t);
+            }
+        }, 300);
+    }
+
+    /** The host ships a renamed androidx ("androidx.recyclerview.widget.i" is
+     *  what the settings list actually uses) with member names obfuscated too,
+     *  so animateChange cannot be found by name. Signature instead: it is the
+     *  only ItemAnimator method taking (holder, holder, int, int, int, int) -
+     *  add/remove take one argument and move takes five. */
+    private static void hookAnimatorChange(Class<?> cls) {
+        for (Class<?> k = cls; k != null && k != Object.class; k = k.getSuperclass()) {
+            for (Method m : k.getDeclaredMethods()) {
+                if (m.getParameterCount() != 6) continue;
+                Class<?>[] types = m.getParameterTypes();
+                if (types[2] != int.class || types[3] != int.class
+                        || types[4] != int.class || types[5] != int.class) continue;
+                if (java.lang.reflect.Modifier.isAbstract(m.getModifiers())) continue;
+                if (java.lang.reflect.Modifier.isStatic(m.getModifiers())) continue;
+                if (m.isBridge() || m.isSynthetic()) continue;
+                m.setAccessible(true);
+                final Class<?> owner = k;
+                final String name = m.getName();
+                module.hook(m).intercept(chain -> {
+                    // The tapped row stays pressed on BOTH surfaces of the
+                    // change animation (old and new holder can be different
+                    // views); clear them now and again next frame, in case
+                    // the ripple is re-entered by the touch stream.
+                    for (int i = 0; i < 2; i++) {
+                        final Object holder = chain.getArg(i);
+                        if (holder == null) continue;
+                        try { clearTransientStates(holder); }
+                        catch (Throwable t) { log(Log.WARN, "outgoing holder state clear failed", t); }
+                        MAIN.postDelayed(() -> {
+                            try { clearTransientStates(holder); }
+                            catch (Throwable ignored) {}
+                        }, 32);
+                    }
+                    return chain.proceed();
+                });
+                log(Log.INFO, "change feedback hook on " + k.getName() + "." + name);
+                return;
+            }
+        }
+        log(Log.WARN, "no concrete animateChange in chain of " + cls.getName());
+    }
+
+    private static void clearTransientStates(Object holder) throws Exception {
+        if (holder == null) return;
+        android.view.View v = itemViewOf(holder);
+        if (v != null) settleView(v);
+    }
+
+    /** The host renames androidx members, so ViewHolder.itemView's field name
+     *  cannot be trusted - find it by type instead. The field is declared on
+     *  RecyclerView.ViewHolder itself, so prefer the base-class declaration
+     *  over whatever View-typed field the (obfuscated) concrete holder adds. */
+    private static android.view.View itemViewOf(Object holder) {
+        // Preferred: the View-typed field declared on the ViewHolder base
+        // hierarchy (itemView), looked up on the holder class's own loader.
+        try {
+            ClassLoader cl = holder.getClass().getClassLoader();
+            Class<?> base = cl.loadClass("androidx.recyclerview.widget.RecyclerView$ViewHolder");
+            for (Class<?> k = base; k != null && k != Object.class; k = k.getSuperclass()) {
+                for (java.lang.reflect.Field f : k.getDeclaredFields()) {
+                    if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                    if (!android.view.View.class.isAssignableFrom(f.getType())) continue;
+                    try {
+                        f.setAccessible(true);
+                        Object value = f.get(holder);
+                        if (value instanceof android.view.View) return (android.view.View) value;
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {}
+        // Fallback: nearest View-typed instance field up the holder's chain.
+        for (Class<?> k = holder.getClass(); k != null && k != Object.class; k = k.getSuperclass()) {
+            for (java.lang.reflect.Field f : k.getDeclaredFields()) {
+                if (java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (!android.view.View.class.isAssignableFrom(f.getType())) continue;
+                try {
+                    f.setAccessible(true);
+                    Object value = f.get(holder);
+                    if (value instanceof android.view.View) return (android.view.View) value;
+                } catch (Throwable ignored) {}
+            }
+        }
+        return null;
+    }
+
+    /** Clears transient (press/selection) state and, crucially, jumps every
+     *  drawable to its current state: setPressed(false) merely starts the
+     *  COUI ripple's own fade-out, which keeps painting the lighter pressed
+     *  background for hundreds of milliseconds - exactly the grey band the
+     *  cross-fade then renders. jumpDrawablesToCurrentState ends it at once. */
+    private static void settleView(android.view.View v) {
+        v.setPressed(false);
+        v.setSelected(false);
+        v.setActivated(false);
+        v.setHovered(false);
+        v.jumpDrawablesToCurrentState();
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) v;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                android.view.View child = group.getChildAt(i);
+                if (child != null) settleView(child);
+            }
+        }
+    }
+
+    private static Object recyclerViewOf(Object fragment, Class<?> rvClass) {
+        for (Class<?> k = fragment.getClass(); k != null; k = k.getSuperclass()) {
+            for (Method m : k.getDeclaredMethods()) {
+                if (m.getParameterCount() != 0 || !rvClass.isAssignableFrom(m.getReturnType())) continue;
+                try {
+                    m.setAccessible(true);
+                    Object value = m.invoke(fragment);
+                    if (rvClass.isInstance(value)) return value;
+                } catch (Throwable ignored) {}
+            }
+        }
+        return null;
     }
 
     private static Context contextOf(Object fragment) {

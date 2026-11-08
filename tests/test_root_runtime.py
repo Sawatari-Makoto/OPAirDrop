@@ -200,8 +200,9 @@ sh "$MODPATH/bin/verify.sh" "$MODPATH" installed
         (module / 'payload/kernel').mkdir(parents=True)
         (module / 'payload/kernel/qca_cld3_peach_v2.ko').write_bytes(
             b'\x7fELF\x00vermagic=6.6.118-android15-8-gdeadbeef-abogki1-4k\x00')
+        # Captured release identities now carry the generic provider name as
+        # well: the shipped payload .ko is patched to opairshare_wonder_provider.
         identity = (ROOT / 'module/bin/kernel-identity.sh').read_text()
-        identity = identity.replace('opairshare_wonder_provider', 'oneplus13_wonder_provider')
         identity = re.sub(r'^(NOTE_\w+)=BUILD_REQUIRED$',
                           lambda m: f'{m.group(1)}={m.group(1).encode().hex()}',
                           identity, flags=re.M)

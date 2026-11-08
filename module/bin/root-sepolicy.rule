@@ -7,3 +7,36 @@ allow mosey_app ROOT_DOMAIN binder { call transfer };
 allow mosey_app ROOT_DOMAIN fd use;
 allow mosey_app mosey_service service_manager find;
 allow ROOT_DOMAIN mosey_server_exec file { read open execute execute_no_trans map getattr };
+# Binder fd transfer into the provider host (chooser share panel + in-app
+# sends). The kernel's selinux_binder_transfer_file runs two checks whose
+# subject is always the RECEIVING domain (mosey_app):
+#   1. receiver -> fd-opener domain :fd use, gated by the MCS constraint
+#      (l1 dom l2); every app domain carries uid-specific MCS categories,
+#      so mosey_app can never dominate them without the mlstrustedsubject
+#      exemption. Both checks are silent (dontaudit), which is why a missing
+#      rule showed up only as "translate fd failed" in dmesg.
+#   2. receiver -> file inode :file read. FUSE passthrough surfaces the
+#      lower-fs label, not "fuse", so media_rw_data_file and app_data_file
+#      must be covered as well.
+typeattribute mosey_app mlstrustedsubject;
+allow mosey_app appdomain fd use;
+allow mosey_app untrusted_app fd use;
+allow mosey_app untrusted_app_25 fd use;
+allow mosey_app untrusted_app_27 fd use;
+allow mosey_app untrusted_app_29 fd use;
+allow mosey_app untrusted_app_30 fd use;
+allow mosey_app untrusted_app_32 fd use;
+allow mosey_app platform_app fd use;
+allow mosey_app priv_app fd use;
+# NOTE: ksud's sepolicy parser only accepts the 4-field form
+# "allow <source> <target> <class> <perms>" — the inline "target:class"
+# spelling is silently skipped, which is exactly what dropped the five
+# file-label rules below on boot. Keep every allow in 4-field form.
+allow mosey_app fuse file { read open getattr };
+allow mosey_app media_rw_data_file file { read open getattr };
+allow mosey_app app_data_file file { read open getattr };
+allow mosey_app app_data_file fifo_file { read write open };
+# shell_data_file: /data/local/tmp files pushed by adb. Not a consumer
+# path, but the chooser happily offers such files and the missing label
+# used to fail the inode-read check silently.
+allow mosey_app shell_data_file file { read open getattr };

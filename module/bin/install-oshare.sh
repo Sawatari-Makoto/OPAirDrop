@@ -6,9 +6,23 @@ PHASE=${2:-install}
 STATE=/data/adb/opairshare
 DB=/data/adb/lspd/config/modules_config.db
 PKG=com.oshare.airdrop
+# Releases up to v1.1.17 shipped the bridge under this package name. Any
+# leftover copy must go once the new identity is on the device: two LSPosed
+# modules hooking the same hosts would double-inject every surface.
+LEGACY_PKG=com.tlsu.oshareairdrop
 APK="$BASE/companion/OShareAirDrop.apk"
 mkdir -p "$STATE"
 chmod 700 "$STATE"
+
+remove_legacy_bridge() {
+    if [ -n "$(/system/bin/pm path --user 0 "$LEGACY_PKG" 2>/dev/null)" ]; then
+        if /system/bin/pm uninstall --user 0 "$LEGACY_PKG" >> "$STATE/oshare-install.log" 2>&1; then
+            echo "已卸载旧包名桥接 $LEGACY_PKG（v1.1.17 及之前的身份）"
+        else
+            echo "旧包名桥接 $LEGACY_PKG 卸载失败，请手动卸载；否则 LSPosed 会双份注入。"
+        fi
+    fi
+}
 
 # Ensure mode: re-assert the LSPosed activation on every boot. Out-of-band
 # writes to modules_config.db (done by the setup tool from a shell context)
@@ -21,6 +35,7 @@ if [ "$PHASE" = ensure ]; then
     [ -f "$DB" ] || exit 0
     installed=$(/system/bin/pm path --user 0 "$PKG" 2>/dev/null | sed -n 's/^package://p')
     case "$installed" in /data/app/*/base.apk) ;; *) exit 0;; esac
+    remove_legacy_bridge
     state=$(CLASSPATH="$BASE/payload/native/lsposed-setup.jar" /system/bin/app_process /system/bin OPAirShareLSPosed --check "$DB" "$installed" 2>/dev/null)
     case "$state" in *enabled=1*apkMatches=1*) exit 0;; esac
     if CLASSPATH="$BASE/payload/native/lsposed-setup.jar" /system/bin/app_process /system/bin OPAirShareLSPosed "$DB" "$installed" >> "$STATE/oshare-install.log" 2>&1; then
@@ -103,6 +118,7 @@ else
 fi
 installed=$(/system/bin/pm path --user 0 "$PKG" 2>/dev/null | sed -n 's/^package://p')
 case "$installed" in /data/app/*/base.apk) ;; *) echo '无法确定已安装的 OShare APK 路径'; exit 1;; esac
+remove_legacy_bridge
 [ -f "$DB" ] || { echo 'LSPosed 配置尚未创建，已安排下次开机重试。'; exit 10; }
 if CLASSPATH="$BASE/payload/native/lsposed-setup.jar" /system/bin/app_process /system/bin OPAirShareLSPosed "$DB" "$installed" >> "$STATE/oshare-install.log" 2>&1; then
     rm -f "$STATE/oshare-setup-pending" "$STATE/oshare-setup-attempts"

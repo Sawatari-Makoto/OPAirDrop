@@ -32,6 +32,10 @@ public final class Entry extends XposedModule {
     private static volatile boolean startScheduled;
     private boolean hostHooksInstalled;
     private static volatile ServiceConnection connection;
+    /** elapsedRealtime of the last observed mosey session activity (byt.i
+     *  PrepareBestChannel evaluations). STA restore waits for this to go stale
+     *  so a reconnect never races a session that is still being set up. */
+    private static volatile long moseyActivityAt;
 
     @Override
     public void onModuleLoaded(XposedModuleInterface.ModuleLoadedParam param) {
@@ -45,6 +49,11 @@ public final class Entry extends XposedModule {
         if ("com.coloros.oshare".equals(param.getPackageName())) {
             try { hookOShareApplication(param.getDefaultClassLoader()); }
             catch (Throwable t) { log(Log.ERROR, TAG, "unsupported OShare APK", t); }
+            return;
+        }
+        if ("com.android.systemui".equals(param.getPackageName())) {
+            try { SystemUiInlineHeightHooks.install(this, param.getDefaultClassLoader()); }
+            catch (Throwable t) { log(Log.ERROR, TAG, "systemui inline height hook failed", t); }
             return;
         }
         if (!HOST.equals(param.getPackageName())) return;
@@ -463,6 +472,7 @@ public final class Entry extends XposedModule {
             ShareMode mode = ShareModeRuntime.initialize(app);
             // Channel adaptation is also required by the original Quick Share path.
             hookDiscoveryChannels(ProviderHolder.loader(), app);
+            hookWifiRestore(ProviderHolder.loader(), app);
             try { ShareModeHooks.install(this, ProviderHolder.loader(), mode); }
             catch (Exception failure) {
                 log(Log.ERROR, TAG, "AirDrop share mode hooks unavailable; bridge disabled", failure);
@@ -483,25 +493,59 @@ public final class Entry extends XposedModule {
         if (ShareModeRuntime.initialize(app).usesOShare()) scheduleServiceStart(app);
     }
 
+    private static String sysProp(String name) throws Exception {
+        return (String) Class.forName("android.os.SystemProperties")
+                .getMethod("get", String.class, String.class).invoke(null, name, "");
+    }
+
+    private static String sysPropSafe(String name) {
+        try { return sysProp(name); } catch (Throwable t) { return ""; }
+    }
+
+    private static boolean probeDone;
+
     private void hookDiscoveryChannels(ClassLoader loader, Context context) {
         try {
             Class<?> controller = loader.loadClass("byt");
             Method start = controller.getDeclaredMethod("i", java.util.List.class,
                     loader.loadClass("byb"), boolean.class, loader.loadClass("dqd"));
             hook(start).intercept(chain -> {
-                String policy = (String) Class.forName("android.os.SystemProperties")
-                        .getMethod("get", String.class, String.class)
-                        .invoke(null, "debug.opairshare.discovery", "");
-                if (policy.isEmpty()) {
-                    // The verified pre-migration callback payload uses this property.
-                    policy = (String) Class.forName("android.os.SystemProperties")
-                            .getMethod("get", String.class, String.class)
-                            .invoke(null, "debug." + "op" + "13.discovery", "");
+                // Any channel evaluation means a mosey session is alive (start or
+                // mid-session re-evaluation); the STA restore gate uses this.
+                moseyActivityAt = android.os.SystemClock.elapsedRealtime();
+                java.util.List<?> requested = (java.util.List<?>) chain.getArg(0);
+                // One-shot per-process diagnostic: confirms the packaged
+                // classes4.dex policy class is loadable here (it only reaches
+                // the app when the patched APK ships in the static KernelSU
+                // payload — late_start bind mounts never propagate into the
+                // app mount namespace) and what keepWifi would decide.
+                if (!probeDone) {
+                    probeDone = true;
+                    try {
+                        String prop = sysProp("debug.opairshare.discovery");
+                        Log.i(TAG, "DISCOVERY_PROBE discovery=" + prop);
+                    } catch (Throwable t) {
+                        Log.w(TAG, "DISCOVERY_PROBE prop read failed: " + t);
+                    }
+                    try {
+                        Class<?> policyClass = loader.loadClass("dev.evermore.opairshare.DiscoveryPolicy");
+                        android.net.wifi.WifiManager wifi = (android.net.wifi.WifiManager)
+                                context.getSystemService(Context.WIFI_SERVICE);
+                        Object keep = policyClass.getDeclaredMethod("keepWifi",
+                                android.net.wifi.WifiManager.class, java.util.List.class)
+                                .invoke(null, wifi, requested);
+                        Log.i(TAG, "DISCOVERY_PROBE keepWifi=" + keep);
+                    } catch (Throwable t) {
+                        Throwable cause = (t instanceof java.lang.reflect.InvocationTargetException
+                                && t.getCause() != null) ? t.getCause() : t;
+                        Log.w(TAG, "DISCOVERY_PROBE policy check failed: "
+                                + cause.getClass().getName() + ": " + cause.getMessage());
+                    }
                 }
+                String policy = sysPropSafe("debug.opairshare.discovery");
                 android.net.wifi.WifiManager wifi = (android.net.wifi.WifiManager)
                         context.getSystemService(Context.WIFI_SERVICE);
-                android.net.wifi.WifiInfo info = wifi.getConnectionInfo();
-                java.util.List<?> requested = (java.util.List<?>) chain.getArg(0);
+                android.net.wifi.WifiInfo info = currentWifiInfo(context);
                 java.util.List<?> selected = DiscoveryChannels.select(policy,
                         info == null ? 0 : info.getFrequency(), wifi.isWifiEnabled() && info != null
                         && info.getSupplicantState() == android.net.wifi.SupplicantState.COMPLETED, requested);
@@ -516,6 +560,109 @@ public final class Entry extends XposedModule {
             log(Log.INFO, TAG, "fixed149 discovery hook installed");
         } catch (Throwable t) {
             log(Log.ERROR, TAG, "fixed149 discovery hook unavailable", t);
+        }
+    }
+
+    /** Restore the user's Wi-Fi STA association after a mosey session ends.
+     *  mosey's network bring-up hard-depends on tearing the STA down first
+     *  (single radio, dbs=0): blocking WifiManager.disconnect() makes its
+     *  start path fail with an NPE inside NearMaerung.disconnect
+     *  (byt.i:778 -> bvm.b:50) and discovery never starts, so the teardown
+     *  itself must stay. What is fixable is the aftermath: mosey disables
+     *  autojoin before its disconnects and only re-enables it on stop, which
+     *  historically left the STA down forever once the session closed.
+     *  byt.j (the teardown coroutine holding "Trying to enable autojoin
+     *  before mosey stop") fires both on the real stop and on mid-session
+     *  channel re-evaluations, so it is only a trigger: every scheduled
+     *  reconnect re-checks the two gates below before touching the STA. */
+    private void hookWifiRestore(ClassLoader loader, Context context) {
+        try {
+            Class<?> controller = loader.loadClass("byt");
+            Method teardown = null;
+            for (Method m : controller.getDeclaredMethods()) {
+                if ("j".equals(m.getName())) { teardown = m; break; }
+            }
+            if (teardown == null) throw new NoSuchMethodException("byt.j");
+            hook(teardown).intercept(chain -> {
+                Object result = chain.proceed();
+                scheduleWifiRestore(context);
+                return result;
+            });
+            log(Log.INFO, TAG, "wifi restore hook installed (byt.j teardown trigger)");
+        } catch (Throwable t) {
+            log(Log.ERROR, TAG, "wifi restore hook unavailable", t);
+        }
+    }
+
+    /** True while any mosey-owned network interface (mosey0, ...) still exists,
+     *  i.e. the mosey network is up and the STA must stay down. When the
+     *  interface list cannot be read, assume it is alive so a reconnect never
+     *  fights an active session by mistake. */
+    private static boolean moseyNetworkAlive() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> all =
+                    java.net.NetworkInterface.getNetworkInterfaces();
+            while (all != null && all.hasMoreElements()) {
+                String name = all.nextElement().getName();
+                if (name != null && name.startsWith("mosey")) return true;
+            }
+        } catch (Throwable t) {
+            return true;
+        }
+        return false;
+    }
+
+    /** Poll the STA state after a mosey teardown and force a reconnect once the
+     *  session is really over: the mosey network interface must be gone and the
+     *  last session activity (byt.i evaluation) must be stale, which also covers
+     *  the bring-up window where the interface is not up yet. Each pass
+     *  re-checks the gates, so an already restored link or a reopened session
+     *  skips the reconnect call. */
+    /** Modern replacement for the deprecated WifiManager#getConnectionInfo(). */
+    private static android.net.wifi.WifiInfo currentWifiInfo(Context context) {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    context.getSystemService(Context.CONNECTIVITY_SERVICE);
+            android.net.Network nw = cm == null ? null : cm.getActiveNetwork();
+            android.net.NetworkCapabilities nc =
+                    nw == null ? null : cm.getNetworkCapabilities(nw);
+            if (nc == null) return null;
+            android.net.TransportInfo ti = nc.getTransportInfo();
+            return ti instanceof android.net.wifi.WifiInfo
+                    ? (android.net.wifi.WifiInfo) ti : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("deprecation") // WifiManager#reconnect() has no framework replacement
+    private void scheduleWifiRestore(Context context) {
+        Handler handler = new Handler(Looper.getMainLooper());
+        for (long delay : new long[]{1500, 4000, 8000, 15000, 25000, 40000}) {
+            handler.postDelayed(() -> {
+                try {
+                    android.net.wifi.WifiManager wifi = (android.net.wifi.WifiManager)
+                            context.getSystemService(Context.WIFI_SERVICE);
+                    if (wifi == null || !wifi.isWifiEnabled()) return;
+                    android.net.wifi.WifiInfo info = currentWifiInfo(context);
+                    android.net.wifi.SupplicantState state = info == null
+                            ? null : info.getSupplicantState();
+                    if (state == android.net.wifi.SupplicantState.COMPLETED) return;
+                    if (moseyNetworkAlive()) {
+                        Log.i(TAG, "STA_RESTORE skip: mosey network still up");
+                        return;
+                    }
+                    long idleFor = android.os.SystemClock.elapsedRealtime() - moseyActivityAt;
+                    if (idleFor < 12000) {
+                        Log.i(TAG, "STA_RESTORE skip: session active " + idleFor + "ms ago");
+                        return;
+                    }
+                    Log.i(TAG, "STA_RESTORE supplicant=" + state + "; forcing reconnect");
+                    wifi.reconnect();
+                } catch (Throwable t) {
+                    Log.w(TAG, "STA_RESTORE attempt failed", t);
+                }
+            }, delay);
         }
     }
 

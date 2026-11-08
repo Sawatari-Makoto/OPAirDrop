@@ -64,7 +64,21 @@ coex_wifi_read() {
 # Coexistence is always enabled and follows every supported STA band.
 coex_scope() { echo auto; }
 coex_requested() { return 0; }
-coex_wifi_eligible() { coex_wifi_read; }
+# Wi-Fi enabled but not associated is a valid state for an AWDL-only session:
+# the AirDrop data path runs on the AWDL interface (wonder0, 5745 MHz) and
+# never on the STA, so an unassociated STA contributes no channel constraint
+# and arming AWDL is the one coexistence mode the firmware handles for free.
+# Report frequency=0 so snapshots and status output can tell it apart from a
+# real STA channel.
+coex_wifi_eligible() {
+    if coex_wifi_read;then return 0;fi
+    if [ "$coex_wifi_reason" = wifi_disconnected ];then
+        coex_wifi_frequency=0
+        coex_wifi_network=
+        return 0
+    fi
+    return 1
+}
 
 # True while the kernel-side AWDL session is armed on the AWDL channel.
 #

@@ -77,14 +77,19 @@ status() {
     coexist_active=off
     coexist_reason=wifi_unavailable
     if coex_requested;then
-        coexist_reason=$coex_wifi_reason
-        if [ -e "$STATE/coex-wifi-blocked" ];then
-            coexist_reason=$(cat "$STATE/coex-wifi-blocked" 2>/dev/null || echo wifi_unavailable)
-        elif [ -e "$STATE/coex-session/invalidated" ];then
-            coexist_reason=recovering
-        elif [ -n "$coexist_reason" ];then
-            :
-        else coexist_active=on;coexist_reason=
+        if [ "$coex_wifi_reason" = wifi_disconnected ];then
+            # Wi-Fi on but unassociated is eligible for AWDL-only sessions.
+            coexist_active=on;coexist_reason=
+        else
+            coexist_reason=$coex_wifi_reason
+            if [ -e "$STATE/coex-wifi-blocked" ];then
+                coexist_reason=$(cat "$STATE/coex-wifi-blocked" 2>/dev/null || echo wifi_unavailable)
+            elif [ -e "$STATE/coex-session/invalidated" ];then
+                coexist_reason=recovering
+            elif [ -n "$coexist_reason" ];then
+                :
+            else coexist_active=on;coexist_reason=
+            fi
         fi
     fi
     version=$(sed -n 's/^version=//p' "$MODDIR/module.prop")

@@ -8,6 +8,18 @@ init_state
 P=/sys/module/qca_cld3_peach_v2/parameters
 S="$STATE/coex-session"
 knobs='passthru_sta_coexist passthru_awdl_allow_concurrent passthru_mgmt_home_channel passthru_awdl_amsdu passthru_awdl_phy passthru_awdl_mcs passthru_awdl_nss passthru_awdl_collect_us'
+# The discovery patch has to be live for this boot. Verify the mounted Mosey
+# APK directly instead of trusting the callback/boot marker: the static
+# payload (manager overlay mounted before zygote) deliberately removes the
+# marker, so requiring it blocked every coexistence session for the whole
+# boot. The digest check covers both delivery modes - static payload and the
+# dynamic bind mount - and still catches an interrupted APK swap that left a
+# stale marker behind without a real patched mount.
+callback_live() {
+    expected=$(awk '$2=="base.apk" {print $1}' "$MODDIR/APP-CALLBACK-SHA256SUMS" 2>/dev/null) || return 1
+    [ -n "$expected" ] || return 1
+    [ "$(sha256sum /system_ext/priv-app/MoseyApp/base.apk 2>/dev/null | awk '{print $1}')" = "$expected" ]
+}
 idle() {
     [ "$(cat "$P/opairshare_bridge_pending")" = 0 ] &&
     grep -q 'accepting=0 vdev=255 freq=0' "$P/opairshare_channel_state" &&
@@ -33,7 +45,7 @@ case "${1:-status}" in
         # The discovery patch has to be mounted for this boot. The switched-off
         # marker alone is not enough: an interrupted APK swap used to leave it
         # behind and blocked the AWDL session for the whole boot.
-        same_boot "$STATE/callback/boot" || { echo 'COEX_BLOCKED callback patch not applied';exit 8; }
+        callback_live || { echo 'COEX_BLOCKED callback patch not applied';exit 8; }
         [ -z "$(getprop debug.opairshare.discovery)" ] && [ -z "$(getprop debug.opairshare.standby)" ] || exit 8
         [ ! -e "$S" ] && [ ! -e "$S.preparing" ] || exit 8
         if ! coex_wifi_eligible;then
@@ -47,6 +59,8 @@ case "${1:-status}" in
         case "$class" in
             same149) policy=same149;;
             cross5g|band24|band6) policy=auto;;
+            # Wi-Fi on but unassociated: AWDL owns the radio, auto profile.
+            disconnected) policy=auto;;
             *) exit 8;;
         esac
         mkdir -m 700 "$S.preparing"

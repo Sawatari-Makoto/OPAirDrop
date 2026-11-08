@@ -45,15 +45,13 @@ def rewrite_identity(module):
     Every device reads its own ids at install time. The kernel ABI family of
     the payload is derived from the vermagic of the shipped driver.
     """
-    legacy = 'op' + '13'
-    provider = 'oneplus' + '13_wonder_provider'
     source = module / 'bin/kernel-identity.sh'
     snapshot_notes = {}
     for line in source.read_text().splitlines():
         if line.startswith('NOTE_'):
             key, value = line.split('=', 1)
             snapshot_notes[key] = value
-    template = (ROOT / 'module/bin/kernel-identity.sh').read_text().replace('opairshare_wonder_provider', provider)
+    template = (ROOT / 'module/bin/kernel-identity.sh').read_text()
     text = ''.join(line + '\n' for line in template.splitlines() if not line.startswith('STOCK_NOTE_'))
     for key, value in snapshot_notes.items():
         text = text.replace(f'{key}=BUILD_REQUIRED', f'{key}={value}')
@@ -69,14 +67,16 @@ def rewrite_identity(module):
 
 def overlay_sources(module):
     # Keep the verified binary ABI while shipping maintained runtime scripts.
+    # The provider module keeps its generic, device-independent name: the
+    # snapshot payload .ko is patched to opairshare_wonder_provider, so
+    # scripts must not remap it. This mode3 kernel exports the current sysfs
+    # names. Only the captured Mosey discovery APK still reads its original
+    # discovery property.
     legacy = 'op' + '13'
-    provider = 'oneplus' + '13_wonder_provider'
     for source in (ROOT / 'module/bin').glob('*.sh'):
         if source.name == 'kernel-identity.sh':
             continue
-        text = source.read_text().replace('opairshare_wonder_provider', provider)
-        # This mode3 kernel exports the current sysfs names. Only the captured
-        # Mosey discovery APK still reads its original discovery property.
+        text = source.read_text()
         text = text.replace('debug.opairshare.discovery', 'debug.' + legacy + '.discovery')
         write_lf(module / 'bin' / source.name, text)
     rewrite_identity(module)
