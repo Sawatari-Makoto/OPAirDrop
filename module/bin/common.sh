@@ -339,7 +339,7 @@ driver_capability_gap() {
 # The modules this package installed have to be the ones that are loaded, so
 # the stack can be taken down again on unload.
 owned_modules_match() {
-    for name in wonder oneplus13_wonder_provider; do
+    for name in wonder opairshare_wonder_provider; do
         loaded "$name" || continue
         expected=$(eval echo "\$NOTE_$name")
         [ -n "$expected" ] || continue

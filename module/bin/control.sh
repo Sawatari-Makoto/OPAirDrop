@@ -210,7 +210,7 @@ stop_native() {
 }
 restore_state_allowed() {
     if loaded wonder; then [ "$(module_note wonder)" = "$NOTE_wonder" ] || return 3; fi
-    if loaded oneplus13_wonder_provider; then [ "$(module_note oneplus13_wonder_provider)" = "$NOTE_oneplus13_wonder_provider" ] || return 3; fi
+    if loaded opairshare_wonder_provider; then [ "$(module_note opairshare_wonder_provider)" = "$NOTE_opairshare_wonder_provider" ] || return 3; fi
     # Original WLAN/mac80211 builds vary across supported sun devices.
     # Keep ownership checks for our provider/Wonder; let insmod validate ABI.
 }
@@ -228,7 +228,7 @@ restore_owned() {
         if loaded qca_cld3_peach_v2 && [ "$(module_note qca_cld3_peach_v2)" = "$NOTE_qca_cld3_peach_v2" ]; then
             rmmod qca_cld3_peach_v2 || return 11
         fi
-        if loaded oneplus13_wonder_provider; then rmmod oneplus13_wonder_provider || return 12; fi
+        if loaded opairshare_wonder_provider; then rmmod opairshare_wonder_provider || return 12; fi
         if ! loaded qca_cld3_peach_v2; then insmod /vendor/lib/modules/qca_cld3_peach_v2.ko || return 13; fi
         loaded qca_cld3_peach_v2 || return 13
         # The restored driver has to be the build this device ships, not the
@@ -239,7 +239,7 @@ restore_owned() {
         fi
         rm -f "$STATE/qca-swapped" "$STATE/provider-added"
     elif same_boot "$STATE/provider-added"; then
-        if loaded oneplus13_wonder_provider; then rmmod oneplus13_wonder_provider || return 12; fi
+        if loaded opairshare_wonder_provider; then rmmod opairshare_wonder_provider || return 12; fi
         rm -f "$STATE/provider-added"
     fi
     if same_boot "$STATE/mac-swapped"; then
@@ -385,7 +385,7 @@ case "${1:-status}" in
             trap - INT TERM
             ready_message; exit 0
         fi
-        for m in wonder oneplus13_wonder_provider opairshare_hw_probe; do
+        for m in wonder opairshare_wonder_provider opairshare_hw_probe; do
             if loaded "$m"; then echo "Unexpected live module $m"; exit 3; fi
         done
         [ -z "$(pidof mosey_server || true)" ] || { echo 'Existing native server; use explicit adopt only for verified state'; exit 3; }
@@ -407,7 +407,7 @@ case "${1:-status}" in
         pause_wifi_hal
         rmmod qca_cld3_peach_v2
         boot_id > "$STATE/qca-swapped"
-        insmod "$MODDIR/payload/kernel/oneplus13_wonder_provider.ko"
+        insmod "$MODDIR/payload/kernel/opairshare_wonder_provider.ko"
         boot_id > "$STATE/provider-added"
         turbo_args=$(turbo_module_args)
         insmod "$MODDIR/payload/kernel/qca_cld3_peach_v2.ko" \
