@@ -68,17 +68,18 @@ def verify_driver_abi(output):
     parameter the driver does not export only fails at runtime, when the
     stack is already half swapped, so the names are checked while packaging.
     """
-    driver = output / 'payload/kernel/qca_cld3_peach_v2.ko'
-    if not driver.exists():
-        raise SystemExit('Missing captured kernel driver')
-    blob = driver.read_bytes()
+    # Search every shipped driver, not just qca: a token such as
+    # /opairshare_wonder_provider.ko inside an insmod path is the provider
+    # module's own file name, and /sys/module/<provider>/... parameters live
+    # in the provider blob, not in the qca blob.
+    blobs = [p.read_bytes() for p in files(output / 'payload/kernel')]
     missing = set()
     for path in files(output):
         if path.suffix != '.sh':
             continue
         text = path.read_text(encoding='utf-8', errors='ignore')
         for name in re.findall(r'/(opairshare_[a-z0-9_]+)', text):
-            if name.encode() not in blob:
+            if name.encode() not in b''.join(blobs):
                 missing.add((path.relative_to(output).as_posix(), name))
     for path, name in sorted(missing):
         raise SystemExit(f'Script uses a driver parameter that does not exist: {path} -> {name}')
