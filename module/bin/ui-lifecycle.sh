@@ -237,23 +237,6 @@ while same_boot "$STATE/stack-boot" && [ ! -e "$STATE/disabled" ] &&
         echo 'Native server lost; explicit recovery required'; exit 6
     fi
     printf '%s %s\n' "$(boot_id)" "$$" > "$STATE/supervisor-ready"
-    # Assert the cached-app freezer guards once per boot (self-gating, one
-    # marker read per tick). The binder-freezer kill removes the cached Mosey
-    # provider within minutes because it never stops its binder traffic; the
-    # guard must be in place before the first session is armed.
-    if ! same_boot "$STATE/freezer-guard"; then
-        /system/bin/sh "$MODDIR/bin/freezer-guard.sh" 8>&- || true
-    fi
-    # ColorOS freezes the cached provider process when the share surface is
-    # idle; the next oneway binder call from oshare is then dropped with
-    # "Sending oneway calls to frozen process" and discovery never starts,
-    # even though the service record itself is intact. Unfreeze the package
-    # every few ticks so the first binder call of a fresh share session
-    # always reaches a live process.
-    unfreeze_tick=$(( ${unfreeze_tick:-0} + 1 ))
-    if [ $((unfreeze_tick % 5)) = 0 ] && pidof "$PKG" >/dev/null 2>&1; then
-        framework cmd activity unfreeze "$PKG" >/dev/null 2>&1 || true
-    fi
     if ! apply_share_mode;then
         receive_published=0
         sleep 1;continue

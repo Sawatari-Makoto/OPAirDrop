@@ -183,16 +183,11 @@ def main():
     copy_tree(reference / 'system', output / 'system')
     copy_tree(reference / 'payload/kernel', output / 'payload/kernel')
     copy_tree(reference / 'payload/app-callback', output / 'payload/app-callback')
-    # The late_start bind mount that used to deliver the patched base.apk
-    # never propagates into app mount namespaces: apps forked from zygote
-    # before the mount keep the stock view for the whole boot, so the
-    # discovery policy classes were never loadable in the mosey process.
-    # Ship the patched APK as the static system payload instead — manager
-    # overlays mount it before zygote, so every app namespace inherits it.
-    # The dynamic callback mount below remains as a fallback for a system
-    # view that is still stock (e.g. an updated stock MoseyApp).
-    mosey_base = output / 'system/system_ext/priv-app/MoseyApp/base.apk'
-    shutil.copy2(output / 'payload/app-callback/base.apk', mosey_base)
+    # Ship the signed stock base.apk as the static system payload: it is
+    # verified by the manager integrity check, keeps the priv-app signature
+    # consistent, and matches the proven layout of the upstream releases.
+    # The patched APK stays in payload/app-callback and is swapped in at
+    # late_start by the runtime callback path only.
     for name in ('APP-SHA256SUMS', 'APP-CALLBACK-SHA256SUMS'):
         source = reference / name
         if digest(source) != manifest.get(name):
@@ -239,26 +234,17 @@ def main():
     app = output / 'system/system_ext/priv-app/MoseyApp'
     static_base = app / 'base.apk'
     callback_base = output / 'payload/app-callback/base.apk'
-    patched_base = ''
     for name in ('APP-SHA256SUMS', 'APP-CALLBACK-SHA256SUMS'):
         for line in (output / name).read_text().splitlines():
             expected, apk = line.split()
             if apk == 'base.apk':
-                if name.startswith('APP-CALLBACK'):
-                    patched_base = expected
-                    path = callback_base
-                else:
-                    # The static payload ships the patched base.apk, so no
-                    # packaged file matches the original hash anymore; it is
-                    # recorded only as the rollback target for the runtime
-                    # scripts and verified against the reference above.
-                    continue
+                path = static_base if name.startswith('APP-SHA256SUMS') else callback_base
             else:
                 path = app / apk
             if digest(path) != expected:
                 raise SystemExit(f'APK hash mismatch: {name}: {apk}')
-    if digest(static_base) != patched_base:
-        raise SystemExit('Static payload base.apk is not the patched APK')
+    if digest(static_base) == digest(callback_base):
+        raise SystemExit('Static payload base.apk must be the signed stock APK')
     for name in ('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
         shutil.copy2(ROOT / name, output / name)
     copy_tree(ROOT / 'LICENSES', output / 'LICENSES')

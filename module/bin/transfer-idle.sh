@@ -15,12 +15,7 @@ if [ -z "$(pidof "$PKG" 2>/dev/null || true)" ];then
     exit 0
 fi
 records=$(framework timeout 8 dumpsys activity service "$COMP") || exit 12
-# `Active Transfers (N)` is deliberately not an activity signal by itself:
-# the provider keeps finished records (isTransferFinished=true, job
-# cancelled) in that list until the next session clears them, and treating
-# the count alone as activity used to block every session/stack change for
-# the rest of the boot. Only per-record in-flight flags count here.
-if printf '%s\n' "$records" | grep -Eq 'OPAIRSHARE_RECEIVE busy=1([[:space:]]|$)|isTransferFinished=false|activeTransfers=\[[^]]+\]|Receive provider transferring: true';then
+if printf '%s\n' "$records" | grep -Eq 'OPAIRSHARE_RECEIVE busy=1([[:space:]]|$)|isTransferFinished=false|activeTransfers=\[[^]]+\]|Active Transfers \([1-9][0-9]*\)|Receive provider transferring: true';then
     # A running transfer counts as activity, so the idle policy does not
     # release the radio in the middle of it.
     idle_touch
@@ -32,11 +27,8 @@ fi
 if printf '%s\n' "$records" | grep -Eq '^No services match:|^No service found';then
     exit 0
 fi
-# Reaching this point means line 23 found no in-flight signal at all, so a
-# non-zero Active Transfers count that only holds finished records
-# (isTransferFinished=true) is still idle. Require the service header and a
-# quiescent receive provider; the count itself stays unchecked.
 if printf '%s\n' "$records" | grep -q 'ExternalSharingService state:' &&
+   printf '%s\n' "$records" | grep -Eq 'Active Transfers \(0\)' &&
    printf '%s\n' "$records" | grep -q 'Receive provider transferring: false';then
     exit 0
 fi

@@ -8,18 +8,6 @@ init_state
 P=/sys/module/qca_cld3_peach_v2/parameters
 S="$STATE/coex-session"
 knobs='passthru_sta_coexist passthru_awdl_allow_concurrent passthru_mgmt_home_channel passthru_awdl_amsdu passthru_awdl_phy passthru_awdl_mcs passthru_awdl_nss passthru_awdl_collect_us'
-# The discovery patch has to be live for this boot. Verify the mounted Mosey
-# APK directly instead of trusting the callback/boot marker: the static
-# payload (manager overlay mounted before zygote) deliberately removes the
-# marker, so requiring it blocked every coexistence session for the whole
-# boot. The digest check covers both delivery modes - static payload and the
-# dynamic bind mount - and still catches an interrupted APK swap that left a
-# stale marker behind without a real patched mount.
-callback_live() {
-    expected=$(awk '$2=="base.apk" {print $1}' "$MODDIR/APP-CALLBACK-SHA256SUMS" 2>/dev/null) || return 1
-    [ -n "$expected" ] || return 1
-    [ "$(sha256sum /system_ext/priv-app/MoseyApp/base.apk 2>/dev/null | awk '{print $1}')" = "$expected" ]
-}
 idle() {
     [ "$(cat "$P/opairshare_bridge_pending")" = 0 ] &&
     grep -q 'accepting=0 vdev=255 freq=0' "$P/opairshare_channel_state" &&
@@ -45,8 +33,8 @@ case "${1:-status}" in
         # The discovery patch has to be mounted for this boot. The switched-off
         # marker alone is not enough: an interrupted APK swap used to leave it
         # behind and blocked the AWDL session for the whole boot.
-        callback_live || { echo 'COEX_BLOCKED callback patch not applied';exit 8; }
-        [ -z "$(getprop debug.opairshare.discovery)" ] && [ -z "$(getprop debug.opairshare.standby)" ] || exit 8
+        same_boot "$STATE/callback/boot" || { echo 'COEX_BLOCKED callback patch not applied';exit 8; }
+        [ -z "$(getprop debug.op13.discovery)" ] && [ -z "$(getprop debug.op13.standby)" ] || exit 8
         [ ! -e "$S" ] && [ ! -e "$S.preparing" ] || exit 8
         if ! coex_wifi_eligible;then
             echo "COEX_BLOCKED reason=$coex_wifi_reason class=${coex_wifi_class:-unknown} frequency=${coex_wifi_frequency:-unknown}"
@@ -65,8 +53,8 @@ case "${1:-status}" in
         esac
         mkdir -m 700 "$S.preparing"
         boot_id > "$S.preparing/boot"
-        getprop debug.opairshare.discovery > "$S.preparing/discovery"
-        getprop debug.opairshare.standby > "$S.preparing/standby"
+        getprop debug.op13.discovery > "$S.preparing/discovery"
+        getprop debug.op13.standby > "$S.preparing/standby"
         printf '%s\n' "$freq" > "$S.preparing/frequency"
         printf '%s\n' "$coex_wifi_network" > "$S.preparing/network"
         printf '%s\n' "$class" > "$S.preparing/class"
@@ -75,7 +63,7 @@ case "${1:-status}" in
         for knob in $knobs;do cat "$P/$knob" > "$S.preparing/$knob";done
         mv "$S.preparing" "$S"
         # Snapshot is committed before the first mutation. Failed writes retain it.
-        setprop debug.opairshare.discovery "$policy"
+        setprop debug.op13.discovery "$policy"
         echo "$mode" > "$P/passthru_sta_coexist"
         echo Y > "$P/passthru_awdl_allow_concurrent"
         echo Y > "$P/passthru_mgmt_home_channel"
@@ -100,8 +88,8 @@ case "${1:-status}" in
         same_boot "$S/boot" || exit 8
         idle
         for knob in $knobs;do cat "$S/$knob" > "$P/$knob";done
-        setprop debug.opairshare.discovery "$(cat "$S/discovery")"
-        setprop debug.opairshare.standby "$(cat "$S/standby")"
+        setprop debug.op13.discovery "$(cat "$S/discovery")"
+        setprop debug.op13.standby "$(cat "$S/standby")"
         restored=$(mktemp -d "$S.restored-$(date +%s).XXXXXX")
         rmdir "$restored"
         mv "$S" "$restored"

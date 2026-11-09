@@ -39,29 +39,18 @@ case "${1:-status}" in
             provider_pid=$(pidof "$PKG" || true)
             if echo "$records" | grep -q 'ExternalSharingService' &&
                echo "$records" | grep -q 'app=ProcessRecord' && pid_live "$provider_pid"; then
-                # A live service plus a live process is already acceptable:
-                # the cached freezer and the binder-freezer kill are disabled
-                # system-wide and the supervisor unfreezes periodically, so
-                # the delegate is a best-effort priority boost, not a gate.
-                provider_ready=2
                 if ! echo "$records" | grep -q 'isFgsDelegate=true'; then
                     framework cmd activity set-foreground-service-delegate --user 0 "$PKG" start || true
                     records=$(active_services)
                     if echo "$records" | grep -q 'isFgsDelegate=true'; then launched_delegate=1; fi
-                else
-                    launched_delegate=1
                 fi
-                if [ "$launched_delegate" = 1 ]; then provider_ready=1;break;fi
+                if echo "$records" | grep -q 'isFgsDelegate=true'; then provider_ready=1;break;fi
             fi
             sleep 1;n=$((n+1))
         done
-        if [ "$provider_ready" = 0 ]; then exit 5; fi
+        [ "$provider_ready" = 1 ] || exit 5
         if [ "$launched_delegate" = 1 ] || [ "${1:-}" = adopt ]; then boot_id > "$STATE/delegate-owned";fi
-        if [ "$provider_ready" = 2 ]; then
-            echo "PROVIDER_READY pid=$(pidof "$PKG") foreground_delegate=no"
-        else
-            echo "PROVIDER_READY pid=$(pidof "$PKG") foreground_delegate=yes"
-        fi
+        echo "PROVIDER_READY pid=$(pidof "$PKG") foreground_delegate=yes"
         ;;
     release)
         framework pm disable-user --user 0 "$PKG"
