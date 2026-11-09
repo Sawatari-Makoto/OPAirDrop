@@ -19,7 +19,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 /**
- * Realtime background blur, FreeShift style. Floating surfaces sample a
+ * Realtime background blur. Floating surfaces sample a
  * shared, downscaled capture of the content underneath, stack-blur it, and
  * draw the result inside their own outline. No external dependencies.
  *

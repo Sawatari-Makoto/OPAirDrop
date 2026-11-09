@@ -57,7 +57,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * Companion-app UI, restyled after FreeShift: three horizontally swipeable
+ * Companion-app UI, restyled: three horizontally swipeable
  * pages (Home / Status / Settings) under a floating realtime-blur capsule
  * header and a floating realtime-blur bottom navigation bar whose glow
  * follows the finger. Scrolling a page down hides the nav bar, scrolling
@@ -108,18 +108,18 @@ public final class MainActivity extends Activity {
     }
 
     private static Scheme dark() {
-        // palette sampled from FreeShift dark theme:
+        // palette for the dark theme:
         // page #1F1F1F, cards #303030, hi #3A3A3A
         return new Scheme(
             0xFF1F1F1F, 0xFF303030, 0xFF3A3A3A, 0xFF3A3A3A, 0x991F1F1F,
             0xFF398FFE, 0xFF1D4ED8, 0xFFF5F5F5, 0xFF9E9E9E,
             0xFF22C55E, 0xFFEF4444, 0xFFF59E0B, 0xFF8A8A8A,
             0x1FFFFFFF, 0xFF2563EB, 0xFF1D4ED8, 0x403B82F6, 0xD91F1F1F,
-            0x1AFFFFFF); // ripple: white 10%, matches FreeShift pressedAlpha
+            0x1AFFFFFF); // ripple: white 10%, matches the row highlight pressedAlpha
     }
 
     private static Scheme light() {
-        // palette sampled from FreeShift light theme:
+        // palette for the light theme:
         // page #F0F1F3, cards #FFFFFF, hi #F1F3F6
         return new Scheme(
             0xFFF0F1F3, 0xFFFFFFFF, 0xFFF1F3F6, 0xFFECECEC, 0xB3F0F1F3,
@@ -243,7 +243,7 @@ public final class MainActivity extends Activity {
             ic.setSystemBarsAppearance(light ? appearance : 0, appearance);
         }
 
-        // FreeShift-style libxposed service: framework delivers its binder
+        // libxposed service: framework delivers its binder
         // via the XposedServiceGate provider when the module is enabled
         LspServiceBridge.register(service -> main.post(() -> {
             lspService = service;
@@ -470,7 +470,7 @@ public final class MainActivity extends Activity {
         tv.setTextColor(color);
     }
 
-    /** Passive status pill used by the environment card (FreeShift style:
+    /** Passive status pill used by the environment card (
      *  blue when healthy, red when not). Not clickable — the whole row is. */
     private TextView statusPill(String label, int color) {
         TextView tv = text(label, 13, true, color);
@@ -520,7 +520,7 @@ public final class MainActivity extends Activity {
         return b;
     }
 
-    /** Subtle scale press feedback, FreeShift style. */
+    /** Subtle scale press feedback. */
     private void pressable(View v) {
         v.setOnTouchListener((view, ev) -> {
             switch (ev.getActionMasked()) {
@@ -541,7 +541,7 @@ public final class MainActivity extends Activity {
     private static final float[] CORNERS_TOP = {22, 22, 0, 0};
     private static final float[] CORNERS_BOTTOM = {0, 0, 22, 22};
 
-    /** Press highlight reused from FreeShift (Compose Material3 ripple,
+    /** Press highlight (Compose Material3 ripple,
      *  pressedAlpha 0.1): a platform RippleDrawable that expands a soft radial
      *  highlight from the touch point (~250-300ms, strongest at the press
      *  center) and fades back out on release. cornerDp is {topLeft, topRight,
@@ -580,7 +580,7 @@ public final class MainActivity extends Activity {
     }
 
     /** Toggle a whole-row button: flat gray fill press feedback spanning the
-     *  full row area (FreeShift style, no shadow/scale) + click action while
+     *  full row area (no shadow/scale) + click action while
      *  enabled, inert while disabled (row shows the "healthy" state then). */
     private void setRowAction(View row, boolean enabled, float[] cornerDp,
                               Runnable action) {
@@ -625,7 +625,7 @@ public final class MainActivity extends Activity {
         return v;
     }
 
-    /** Icon inside a rounded tile, FreeShift feature-row style. */
+    /** Icon inside a rounded tile, feature-row style. */
     private View iconTile(int iconType) {
         FrameLayout tile = new FrameLayout(this);
         GradientDrawable bg = new GradientDrawable();
@@ -670,7 +670,7 @@ public final class MainActivity extends Activity {
         return line;
     }
 
-    /** Device info row, FreeShift spec: icon tile on the left, the title
+    /** Device info row: icon tile on the left, the title
      *  with the prop value stacked beneath it on the right of the tile.
      *  Dividers between rows inset to the text edge (74dp = 18 pad + 44 tile
      *  + 12 gap). */
@@ -1416,7 +1416,7 @@ public final class MainActivity extends Activity {
         hero.addView(heroTitle);
         body.addView(hero, margins(0, 16));
 
-        // environment card: LSP framework + root access (FreeShift style)
+        // environment card: LSP framework + root access
         body.addView(sectionTitle("环境"));
         LinearLayout envCard = card();
         // zero card padding: rows are full-bleed so the press highlight spans
@@ -1447,7 +1447,7 @@ public final class MainActivity extends Activity {
         envCard.addView(rootRow, mm(ViewGroup.LayoutParams.MATCH_PARENT, dp(66), 0f));
         body.addView(envCard, margins(0, 16));
 
-        // device information block, FreeShift spec rows: icon tile + stacked
+        // device information block, spec rows: icon tile + stacked
         // title/value; dividers inset to the text edge, not the card edge
         body.addView(sectionTitle("设备信息"));
         LinearLayout devCard = card();
@@ -1493,7 +1493,7 @@ public final class MainActivity extends Activity {
 
         body.addView(sectionTitle("服务状态"));
 
-        // service card, FreeShift spec-row layout like the environment /
+        // service card, spec-row layout like the environment /
         // device info cards: 70dp full-bleed rows with dividers between,
         // status pill matching the env card's 已连接/未连接 pill
         LinearLayout services = card();
@@ -2637,7 +2637,7 @@ public final class MainActivity extends Activity {
         return missing;
     }
 
-    /** FreeShift-style scope request via the framework service: ask LSPosed
+    /** Scope request via the framework service: ask LSPosed
      *  to grant the missing recommended scopes through its own prompt /
      *  notification instead of jumping to the manager UI. */
     private void requestMissingScopes() {
@@ -3103,7 +3103,7 @@ public final class MainActivity extends Activity {
 
     /** Horizontal snap pager for the three tabs. Each page is as wide as the
      *  viewport; releasing snaps to the nearest page and reports the change.
-     *  During swipes the pages move continuously (FreeShift behaviour). */
+     *  During swipes the pages move continuously . */
     private static final class SnapPager extends HorizontalScrollView {
         /** reports the page the user snapped to */
         interface PageListener {
@@ -3268,7 +3268,7 @@ public final class MainActivity extends Activity {
             }
         }
 
-        /** Slow, FreeShift-like page settle (the stock HorizontalScrollView
+        /** Slow, eased page settle (the stock HorizontalScrollView
          *  fling is fixed at ~250ms and feels abrupt). The natural-end
          *  listener hard-lands on the exact target: if frames were dropped
          *  mid-animation the last scrollTo update could leave the pager
@@ -3414,7 +3414,7 @@ public final class MainActivity extends Activity {
 
     /** Vertical scroll view with iOS-style rubber-band overscroll: dragging
      *  past an edge translates AND squashes the content against the opposite
-     *  edge (distortion stretch, FreeShift behaviour) and springs back with a
+     *  edge (distortion stretch) and springs back with a
      *  rigid release (no overshoot). Fling overscroll snaps back too,
      *  detected when the scroller stops moving with residual translation. */
     private static final class BounceScrollView extends ScrollView {

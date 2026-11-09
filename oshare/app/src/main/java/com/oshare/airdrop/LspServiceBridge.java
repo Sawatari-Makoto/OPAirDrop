@@ -18,7 +18,7 @@ import java.util.List;
  * {@code <pkg>.XposedService} content provider (see XposedServiceGate).
  * Through that binder a module can query its scope and — most importantly —
  * request scope grant: LSPosed then shows its own authorization prompt or
- * notification, no manager navigation required (FreeShift style).
+ * notification, no manager navigation required.
  *
  * The remote interface is spoken with raw parcels (no AIDL sources needed).
  * Transaction codes follow libxposed service API 101/102:
