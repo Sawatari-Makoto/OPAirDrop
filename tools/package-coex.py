@@ -166,7 +166,7 @@ def main():
     with zipfile.ZipFile(args.bridge) as archive:
         if 'AndroidManifest.xml' not in archive.namelist() or 'classes.dex' not in archive.namelist():
             raise ValueError('Invalid bridge APK')
-    (output / 'companion/OShareAirDrop.apk').write_bytes(bridge_data)
+    (output / 'companion/OPAirDrop.apk').write_bytes(bridge_data)
 
     spec = importlib.util.spec_from_file_location('peer_grace', ROOT / 'tools/patch-mosey-peer-grace.py')
     patcher = importlib.util.module_from_spec(spec)

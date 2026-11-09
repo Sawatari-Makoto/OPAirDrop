@@ -19,7 +19,7 @@ class InstallerTests(unittest.TestCase):
         self.system.mkdir(parents=True)
         self.base = self.root / 'module'
         (self.base / 'companion').mkdir(parents=True)
-        (self.base / 'companion/OShareAirDrop.apk').write_bytes(b'fake-apk')
+        (self.base / 'companion/OPAirDrop.apk').write_bytes(b'fake-apk')
         self.state = self.adb / 'opairshare'
         self.script = self.root / 'install.sh'
         text = (ROOT / 'module/bin/install-oshare.sh').read_text()

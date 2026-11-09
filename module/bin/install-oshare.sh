@@ -10,7 +10,10 @@ PKG=com.oshare.airdrop
 # leftover copy must go once the new identity is on the device: two LSPosed
 # modules hooking the same hosts would double-inject every surface.
 LEGACY_PKG=com.tlsu.oshareairdrop
-APK="$BASE/companion/OShareAirDrop.apk"
+# Since v1.2.0 the companion ships as companion/OPAirDrop.apk. Fall back to
+# whichever single APK the companion directory holds for older layouts.
+APK="$BASE/companion/OPAirDrop.apk"
+[ -f "$APK" ] || APK=$(ls "$BASE"/companion/*.apk 2>/dev/null | head -n 1)
 mkdir -p "$STATE"
 chmod 700 "$STATE"
 

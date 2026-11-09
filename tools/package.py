@@ -199,7 +199,8 @@ def main():
                  'opairshare-socket-buffer', 'session-wifi.jar'):
         shutil.copy2(ROOT / 'build/native' / name, native / name)
     shutil.copy2(ROOT / 'build/lsposed/lsposed-setup.jar', native / 'lsposed-setup.jar')
-    companion = output / 'companion/OShareAirDrop.apk'
+    # The companion ships under a fixed, module-branded name.
+    companion = output / 'companion/OPAirDrop.apk'
     companion.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(oshare_apk, companion)
 

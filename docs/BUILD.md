@@ -291,7 +291,7 @@ python3 tools/package.py
 
 打包器逐项核验参考二进制的 SHA256，保留其实际导出的内核模块名、sysfs 接口及回调属性名，填入对应的内核 build-id。模块路径、状态目录和最新用户态助手继续使用当前仓库名称。OShare 对参考回调属性提供兼容读取。本流程不会重编译内核或 Mosey 补丁；来源记录位于 ZIP 内的 `build-info.json`。
 
-安装脚本通过 Android 包管理器的标准输入安装 `companion/OShareAirDrop.apk`，通过 `app_process` 运行 `lsposed-setup.jar`。配置器支持旧式模块 ID 表和新版按用户启用表；修改前使用 SQLite 一致性备份，随后通过事务启用桥接并补齐主用户的两个作用域，保留其他模块及已有作用域。LSPosed 在重启后重新加载配置。未知表结构会拒绝修改，安装失败会保留日志并安排开机重试。
+安装脚本通过 Android 包管理器的标准输入安装 `companion/OPAirDrop.apk`，通过 `app_process` 运行 `lsposed-setup.jar`。配置器支持旧式模块 ID 表和新版按用户启用表；修改前使用 SQLite 一致性备份，随后通过事务启用桥接并补齐主用户的两个作用域，保留其他模块及已有作用域。LSPosed 在重启后重新加载配置。未知表结构会拒绝修改，安装失败会保留日志并安排开机重试。
 
 v1.0.1 集成 Unlock CN GMS v3.8。`bin/setup-gms.sh` 在安装时读取 `bin/gms-paths.txt` 的 11 个候选路径，通过 `bin/gms-filter.awk` 仅移除两项目标 feature，生成 `gms-unlock/overlays/`、挂载清单和动态 SHA256 清单。`post-fs-data.sh` 在 Android 读取权限 XML 前调用 `bin/gms-unlock.sh`，检查目标路径后通过 `bin/root-runtime.sh` 选择管理器 BusyBox 或可用系统工具进行只读 bind mount，失败信息写入 `/data/adb/opairshare/gms-unlock.log`。生成的配置来自安装设备，不预置到发行 ZIP 中；输入包来源记录随包保存在 `third-party/unlock-cn-gms/`。
 
@@ -357,7 +357,7 @@ cp build/native/opairshare-socket-buffer build/package/module/payload/native/
 cp build/native/session-wifi.jar build/package/module/payload/native/
 ```
 
-其余产物按布局表放入对应目录。OShare APK 固定放在 `companion/OShareAirDrop.apk`，自动激活助手放在 `payload/native/lsposed-setup.jar`。
+其余产物按布局表放入对应目录。OShare APK 固定放在 `companion/OPAirDrop.apk`，自动激活助手放在 `payload/native/lsposed-setup.jar`。
 
 装配后为原版 APK、补丁 APK 和模块运行文件生成安装器与运行脚本所需的文件清单。模块内路径以装配目录为根；清单覆盖模块配置、入口脚本、`bin/`、`payload/` 和 `system/`。文件权限按 `customize.sh` 设置，ZIP 中保留 Unix 文件模式。
 

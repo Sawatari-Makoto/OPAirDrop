@@ -72,7 +72,7 @@ def main():
             assert 'init_share_mode || return 3' in (module / 'bin/control.sh').read_text()
             assert '[ "$(active_share_mode)" != quickshare ]' in (module / 'bin/receive-session.sh').read_text()
             assert '    if ! apply_share_mode;then' in (module / 'bin/ui-lifecycle.sh').read_text()
-            with zipfile.ZipFile(module / 'companion/OShareAirDrop.apk') as bridge:
+            with zipfile.ZipFile(module / 'companion/OPAirDrop.apk') as bridge:
                 assert any(b'Lcom/oshare/airdrop/ShareModeHooks;' in bridge.read(name)
                            for name in bridge.namelist() if name.startswith('classes') and name.endswith('.dex'))
             print('PASS share-mode API, lifecycle selection and matching bridge')
@@ -80,7 +80,7 @@ def main():
             props = dict(line.split('=', 1) for line in (module / 'module.prop').read_text().splitlines() if '=' in line)
             assert props['version'] == build_info['version'] == build_info['bridge_version']
             assert int(props['versionCode']) == build_info['versionCode']
-            assert hashlib.sha256((module / 'companion/OShareAirDrop.apk').read_bytes()).hexdigest() == build_info['bridge_sha256']
+            assert hashlib.sha256((module / 'companion/OPAirDrop.apk').read_bytes()).hexdigest() == build_info['bridge_sha256']
             settings = (module / 'bin/settings.sh').read_text()
             assert '. "$MODDIR/bin/receive-directory.sh"' in settings
             assert 'receive-directory-set|receive-directory-reset)' in settings
